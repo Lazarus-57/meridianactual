@@ -27,6 +27,21 @@ interface SatellitePosition {
   status: string;
 }
 
+interface Launch {
+  id: string;
+  name: string;
+  net: string;
+  status: string;
+  rocketName: string;
+  missionDescription: string;
+  provider: string;
+  padName: string;
+  padLat: number;
+  padLng: number;
+  orbit: string;
+  imageUrl: string | null;
+}
+
 // Tracking list: NORAD ID -> (name, type, operator)
 // Only verified active satellites with correct NORAD catalog IDs
 const TRACKED_SATELLITES = [
@@ -284,6 +299,37 @@ function generateMockPositions(): SatellitePosition[] {
   });
 }
 
+// Fetch upcoming launches from TheSpaceDevs LL2 API
+async function fetchUpcomingLaunches(): Promise<Launch[]> {
+  try {
+    const response = await fetch('/api/launches');
+    if (!response.ok) throw new Error('Failed to fetch launch data');
+
+    const data = await response.json();
+    if (!data.results || !Array.isArray(data.results)) return [];
+
+    return data.results
+      .filter((r: any) => r.pad?.latitude && r.pad?.longitude)
+      .map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        net: r.net,
+        status: r.status?.name || 'Unknown',
+        rocketName: r.rocket?.configuration?.name || 'Unknown Rocket',
+        missionDescription: r.mission?.description || 'No mission details available.',
+        provider: r.launch_service_provider?.name || 'Unknown Provider',
+        padName: r.pad?.name || 'Unknown Pad',
+        padLat: parseFloat(r.pad.latitude),
+        padLng: parseFloat(r.pad.longitude),
+        orbit: r.mission?.orbit?.name || 'Unknown Orbit',
+        imageUrl: r.image || null,
+      }));
+  } catch (error) {
+    console.error('Error fetching launch data:', error);
+    return [];
+  }
+}
+
 function LocateButton() {
   const map = useMap();
 
@@ -344,6 +390,49 @@ function LocateButton() {
   }, [map]);
 
   return null;
+}
+
+function CountdownTimer({ net }: { net: string }) {
+  const [timeLeft, setTimeLeft] = useState('');
+
+  useEffect(() => {
+    const update = () => {
+      const now = new Date().getTime();
+      const launch = new Date(net).getTime();
+      const diff = launch - now;
+
+      if (diff <= 0) {
+        setTimeLeft('LAUNCHED');
+        return;
+      }
+
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+      setTimeLeft(
+        `${days > 0 ? `${days}d ` : ''}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+      );
+    };
+
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [net]);
+
+  return (
+    <p style={{
+      margin: 0,
+      fontSize: '24px',
+      color: '#ff6b35',
+      fontFamily: 'monospace',
+      fontWeight: '700',
+      letterSpacing: '2px',
+    }}>
+      T- {timeLeft}
+    </p>
+  );
 }
 
 // Color scheme per satellite type - minimalist SpaceX aesthetic
@@ -492,10 +581,49 @@ function createSatelliteMarkerIcon(type: string) {
   });
 }
 
+const LAUNCH_COLOR = '#ff6b35';
+
+function getLaunchStatusColor(status: string): string {
+  const s = status.toLowerCase();
+  if (s.includes('go')) return '#10b981';
+  if (s.includes('tbd') || s.includes('tbc')) return '#fbbf24';
+  if (s.includes('hold')) return '#ef4444';
+  return LAUNCH_COLOR;
+}
+
+function createLaunchMarkerIcon(status: string) {
+  const color = getLaunchStatusColor(status);
+  const iconSize = 30;
+
+  const iconHtml = `
+    <div class="launch-marker" style="width:${iconSize}px;height:${iconSize}px;filter:drop-shadow(0 0 6px ${color}80) drop-shadow(0 0 12px ${color}30);">
+      <svg width="${iconSize}" height="${iconSize}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"
+           style="color:${color};stroke:${color};overflow:visible;">
+        <path d="M12 2 L14 8 L14 16 L10 16 L10 8 Z" fill="none" stroke-width="1.2"/>
+        <path d="M12 2 L14 8 L10 8 Z" fill="currentColor" opacity="0.3"/>
+        <path d="M10 14 L7 19 L10 17" fill="currentColor" opacity="0.4" stroke-width="0.8"/>
+        <path d="M14 14 L17 19 L14 17" fill="currentColor" opacity="0.4" stroke-width="0.8"/>
+        <path d="M11 16 L12 20 L13 16" fill="currentColor" opacity="0.6" stroke-width="0.6"/>
+        <circle cx="12" cy="10" r="1" fill="currentColor"/>
+      </svg>
+    </div>
+  `;
+
+  return L.divIcon({
+    html: iconHtml,
+    iconSize: [iconSize, iconSize],
+    iconAnchor: [iconSize / 2, iconSize / 2],
+    popupAnchor: [0, -iconSize / 2],
+    className: 'launch-marker-wrapper',
+  });
+}
+
 export default function MapContainer() {
   const [satellites, setSatellites] = useState<SatellitePosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSatellite, setSelectedSatellite] = useState<SatellitePosition | null>(null);
+  const [launches, setLaunches] = useState<Launch[]>([]);
+  const [selectedLaunch, setSelectedLaunch] = useState<Launch | null>(null);
 
   useEffect(() => {
     // Fix Leaflet default icons in Next.js
@@ -528,6 +656,18 @@ export default function MapContainer() {
     return () => clearInterval(interval);
   }, []);
 
+  // Fetch launches (15-min interval to respect LL2 rate limits)
+  useEffect(() => {
+    const fetchLaunches = async () => {
+      const launchData = await fetchUpcomingLaunches();
+      setLaunches(launchData);
+    };
+
+    fetchLaunches();
+    const interval = setInterval(fetchLaunches, 15 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <>
       <LeafletMap
@@ -551,11 +691,29 @@ export default function MapContainer() {
               position={[sat.lat, sat.lng]}
               icon={icon}
               eventHandlers={{
-                click: () => setSelectedSatellite(sat),
+                click: () => {
+                  setSelectedLaunch(null);
+                  setSelectedSatellite(sat);
+                },
               }}
             />
           );
         })}
+
+        {/* Launch Markers */}
+        {launches.map((launch) => (
+          <Marker
+            key={`launch-${launch.id}`}
+            position={[launch.padLat, launch.padLng]}
+            icon={createLaunchMarkerIcon(launch.status)}
+            eventHandlers={{
+              click: () => {
+                setSelectedSatellite(null);
+                setSelectedLaunch(launch);
+              },
+            }}
+          />
+        ))}
 
         <ZoomControl position="bottomright" />
         <LocateButton />
@@ -790,10 +948,150 @@ export default function MapContainer() {
         </div>
       )}
 
+      {/* Launch Details Sidebar */}
+      {selectedLaunch && (
+        <div style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: '420px',
+          background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 14, 39, 0.98) 100%)',
+          borderRight: '1px solid rgba(255, 107, 53, 0.3)',
+          boxShadow: '8px 0 32px rgba(0, 0, 0, 0.5)',
+          zIndex: 100,
+          overflow: 'auto',
+          fontFamily: 'Geist Sans, system-ui, sans-serif',
+        }}>
+          {/* Close Button */}
+          <button
+            onClick={() => setSelectedLaunch(null)}
+            style={{
+              position: 'absolute',
+              top: '16px',
+              right: '16px',
+              background: 'rgba(255, 107, 53, 0.1)',
+              border: '1px solid rgba(255, 107, 53, 0.3)',
+              color: '#ff6b35',
+              width: '32px',
+              height: '32px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '18px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.2s ease',
+              zIndex: 101,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 107, 53, 0.2)';
+              e.currentTarget.style.boxShadow = '0 0 12px rgba(255, 107, 53, 0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 107, 53, 0.1)';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
+          >
+            ✕
+          </button>
+
+          {/* Header */}
+          <div style={{ padding: '32px 24px 24px', borderBottom: '1px solid rgba(255, 107, 53, 0.2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{
+                width: '12px',
+                height: '12px',
+                borderRadius: '50%',
+                background: getLaunchStatusColor(selectedLaunch.status),
+                boxShadow: `0 0 8px ${getLaunchStatusColor(selectedLaunch.status)}, 0 0 20px ${getLaunchStatusColor(selectedLaunch.status)}40`,
+              }} />
+              <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: '600' }}>
+                UPCOMING LAUNCH
+              </span>
+            </div>
+            <h2 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '700', color: '#e2e8f0', letterSpacing: '0.5px' }}>
+              {selectedLaunch.name}
+            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{
+                padding: '2px 8px',
+                fontSize: '10px',
+                color: getLaunchStatusColor(selectedLaunch.status),
+                border: `1px solid ${getLaunchStatusColor(selectedLaunch.status)}40`,
+                borderRadius: '3px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                fontWeight: '600',
+              }}>
+                {selectedLaunch.status}
+              </span>
+            </div>
+          </div>
+
+          {/* Countdown */}
+          <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255, 107, 53, 0.2)' }}>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
+              Countdown
+            </p>
+            <CountdownTimer net={selectedLaunch.net} />
+          </div>
+
+          {/* Launch Details */}
+          <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255, 107, 53, 0.2)' }}>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
+              Launch Details
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>ROCKET</p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#ff6b35', fontWeight: '600' }}>
+                  {selectedLaunch.rocketName}
+                </p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>PROVIDER</p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#e2e8f0', fontWeight: '600' }}>
+                  {selectedLaunch.provider}
+                </p>
+              </div>
+              <div style={{ gridColumn: 'span 2' }}>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LAUNCH PAD</p>
+                <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1' }}>
+                  {selectedLaunch.padName}
+                </p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>TARGET ORBIT</p>
+                <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1' }}>
+                  {selectedLaunch.orbit}
+                </p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LAUNCH DATE</p>
+                <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1', fontFamily: 'monospace' }}>
+                  {new Date(selectedLaunch.net).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Mission Description */}
+          <div style={{ padding: '20px 24px' }}>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
+              Mission
+            </p>
+            <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1', lineHeight: '1.6' }}>
+              {selectedLaunch.missionDescription}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Overlay Backdrop when sidebar is open */}
-      {selectedSatellite && (
+      {(selectedSatellite || selectedLaunch) && (
         <div
-          onClick={() => setSelectedSatellite(null)}
+          onClick={() => { setSelectedSatellite(null); setSelectedLaunch(null); }}
           style={{
             position: 'absolute',
             top: 0,
@@ -806,7 +1104,7 @@ export default function MapContainer() {
         />
       )}
 
-      {/* Satellite Count Indicator */}
+      {/* Status Indicator */}
       {!loading && (
         <div style={{
           position: 'absolute',
@@ -818,10 +1116,17 @@ export default function MapContainer() {
           padding: '8px 14px',
           borderRadius: '4px',
           border: '1px solid rgba(0, 217, 255, 0.15)',
+          display: 'flex',
+          gap: '16px',
         }}>
           <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
-            <span style={{ color: '#00d9ff', fontWeight: '600' }}>{satellites.length}</span> TRACKING
+            <span style={{ color: '#00d9ff', fontWeight: '600' }}>{satellites.length}</span> SAT
           </p>
+          {launches.length > 0 && (
+            <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
+              <span style={{ color: '#ff6b35', fontWeight: '600' }}>{launches.length}</span> LAUNCH
+            </p>
+          )}
         </div>
       )}
       {loading && (

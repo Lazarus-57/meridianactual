@@ -85,3 +85,19 @@ body {
   transform: scale(1.5);
   filter: drop-shadow(0 0 8px currentColor) drop-shadow(0 0 16px currentColor) !important;
 }
+
+/* Launch Marker Styling */
+.launch-marker-wrapper {
+  background: transparent !important;
+  border: none !important;
+}
+
+.launch-marker {
+  cursor: pointer;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.launch-marker-wrapper:hover .launch-marker {
+  transform: scale(1.5);
+  filter: drop-shadow(0 0 8px #ff6b35) drop-shadow(0 0 16px #ff6b35) !important;
+}
