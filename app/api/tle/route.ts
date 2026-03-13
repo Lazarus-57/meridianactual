@@ -1,33 +1,69 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
-export async function GET(request: NextRequest) {
+// Allow up to 30s on Vercel
+export const maxDuration = 30;
+
+// Targeted groups that cover our tracked satellites without downloading all 14,700
+const TLE_GROUPS = [
+  'stations',     // ISS, CSS
+  'weather',      // NOAA, GOES, MetOp, Suomi NPP, JPSS
+  'resource',     // Landsat, ResourceSat, Cartosat, Sentinel-2
+  'sarsat',       // Sentinel-1, RADARSAT, RCM, ALOS, EOS-04
+  'science',      // Hubble, ICESat-2, CALIPSO, GRACE-FO, SMAP, DSCOVR
+  'geodetic',     // CryoSat-2, Jason-3, Sentinel-6
+  'noaa',         // NOAA polar orbiters
+  'goes',         // GOES geostationary
+  'gnss',         // GPS, Galileo, navigation
+];
+
+async function fetchGroup(group: string, signal: AbortSignal): Promise<string> {
+  const response = await fetch(
+    `https://celestrak.org/NORAD/elements/gp.php?GROUP=${group}&FORMAT=tle`,
+    {
+      headers: { 'User-Agent': 'Meridian-Actual-Satellite-Tracker' },
+      signal,
+    }
+  );
+  if (!response.ok) throw new Error(`Group ${group}: ${response.status}`);
+  return response.text();
+}
+
+export async function GET() {
   try {
-    // Fetch TLE data from Celestrak - 'active' group has all operational satellites
-    const response = await fetch(
-      `https://celestrak.com/NORAD/elements/gp.php?GROUP=active&FORMAT=tle`,
-      {
-        headers: {
-          'User-Agent': 'Meridian-Actual-Satellite-Tracker',
-        },
-      }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+
+    // Fetch all groups in parallel
+    const results = await Promise.allSettled(
+      TLE_GROUPS.map(group => fetchGroup(group, controller.signal))
     );
 
-    if (!response.ok) {
-      throw new Error(`Celestrak returned status ${response.status}`);
+    clearTimeout(timeout);
+
+    // Combine all successful results
+    const tleChunks: string[] = [];
+    let successCount = 0;
+
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value.trim().length > 0) {
+        tleChunks.push(result.value.trim());
+        successCount++;
+      }
     }
 
-    const tleText = await response.text();
+    console.log(`TLE fetch: ${successCount}/${TLE_GROUPS.length} groups succeeded`);
 
-    if (!tleText || tleText.trim().length === 0) {
-      throw new Error('Received empty TLE data from Celestrak');
+    if (tleChunks.length === 0) {
+      throw new Error('All Celestrak group fetches failed');
     }
 
-    // Cache for 1 hour
+    const tleText = tleChunks.join('\n');
+
     return NextResponse.json(
       { tle: tleText },
       {
         headers: {
-          'Cache-Control': 'public, max-age=3600',
+          'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=1800',
         }
       }
     );
