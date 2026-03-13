@@ -69,3 +69,19 @@ body {
 .leaflet-control-attribution a {
   color: #60a5fa !important;
 }
+
+/* Custom Satellite Marker Styling */
+.satellite-marker-wrapper {
+  background: transparent !important;
+  border: none !important;
+}
+
+.sat-marker {
+  cursor: pointer;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.satellite-marker-wrapper:hover .sat-marker {
+  transform: scale(1.5);
+  filter: drop-shadow(0 0 8px currentColor) drop-shadow(0 0 16px currentColor) !important;
+}

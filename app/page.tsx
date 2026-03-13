@@ -29,7 +29,7 @@ export default function Home() {
             Every launch. Overhead. Live
           </h1>
           <p className="text-sm text-zinc-500 tracking-wide font-light">
-            Live spacecraft tracking over India
+            Live spacecraft tracking globally
           </p>
         </div>
       </div>
