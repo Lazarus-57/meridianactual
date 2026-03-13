@@ -14,20 +14,25 @@ const MapComponent = dynamic(() => import('@/app/components/MapContainer'), {
 export default function Home() {
   return (
     <div className="h-screen w-screen bg-black flex flex-col overflow-hidden">
-      {/* Futuristic Header - SpaceX style */}
-      <header className="z-10 bg-gradient-to-b from-black via-zinc-950 to-transparent pt-8 px-8">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div>
-            <h1 className="text-5xl md:text-6xl font-bold tracking-tighter text-white">
-              MERIDIAN<span className="text-emerald-400">.</span>ACTUAL
-            </h1>
-            <p className="text-lg text-zinc-400 mt-1 tracking-wide">
-              LIVE SPACECRAFT TRACKING OVER INDIA
-            </p>
-          </div>
-          <div className="text-xs text-zinc-500 font-mono">v0.1 • DAY 1</div>
+      {/* Minimal Top Bar */}
+      <div className="z-10 px-8 py-4 flex justify-between items-center border-b border-zinc-900">
+        <h2 className="text-xl font-light tracking-widest text-white">
+          MERIDIAN<span className="text-emerald-400">.</span>ACTUAL
+        </h2>
+        <div className="text-xs text-zinc-500 font-mono">v0.1 • DAY 1</div>
+      </div>
+
+      {/* Hero Section */}
+      <div className="flex-none px-8 pt-12 pb-6">
+        <div className="max-w-4xl">
+          <h1 className="text-2xl md:text-3xl font-light tracking-wide text-white mb-2">
+            Every launch. Overhead. Live
+          </h1>
+          <p className="text-sm text-zinc-500 tracking-wide font-light">
+            Live spacecraft tracking over India
+          </p>
         </div>
-      </header>
+      </div>
 
       {/* Map */}
       <div className="flex-1 relative">
