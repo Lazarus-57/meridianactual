@@ -51,12 +51,28 @@ interface ConflictLocation {
   startDate?: string;
 }
 
+interface Aircraft {
+  icao24: string;
+  callsign: string;
+  originCountry: string;
+  lat: number;
+  lng: number;
+  altitude: number | null;
+  velocity: number | null;
+  heading: number | null;
+  verticalRate: number | null;
+  onGround: boolean;
+  geoAltitude: number | null;
+  squawk: string | null;
+  category: number;
+}
+
 interface MarkerData {
-  kind: 'satellite' | 'launch' | 'conflict';
+  kind: 'satellite' | 'launch' | 'conflict' | 'aircraft';
   lat: number;
   lng: number;
   altitude: number;
-  data: SatellitePosition | Launch | ConflictLocation;
+  data: SatellitePosition | Launch | ConflictLocation | Aircraft;
   html: string;
 }
 
@@ -730,6 +746,41 @@ function createConflictMarkerHtml(type: ConflictLocation['type']): string {
   `;
 }
 
+// === AVIATION MODE FUNCTIONS ===
+
+async function fetchAircraftPositions(): Promise<Aircraft[]> {
+  try {
+    const response = await fetch('/api/aircraft');
+    if (!response.ok) throw new Error('Failed to fetch aircraft data');
+    const data = await response.json();
+    return data.aircraft || [];
+  } catch (error) {
+    console.error('Error fetching aircraft data:', error);
+    return [];
+  }
+}
+
+function getAircraftAltitudeColor(altitudeMeters: number | null): string {
+  if (altitudeMeters == null) return '#94a3b8';
+  const ft = altitudeMeters * 3.281;
+  if (ft < 10000) return '#4ade80';
+  if (ft < 25000) return '#fbbf24';
+  if (ft < 35000) return '#60a5fa';
+  return '#e2e8f0';
+}
+
+function createAircraftMarkerHtml(heading: number | null, altitudeMeters: number | null): string {
+  const color = getAircraftAltitudeColor(altitudeMeters);
+  const rotation = heading != null ? heading : 0;
+  return `
+    <div style="width:18px;height:18px;filter:drop-shadow(0 0 3px ${color}80);pointer-events:auto;cursor:pointer;transform:rotate(${rotation}deg);">
+      <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2 L14 9 L21 12 L14 15 L12 22 L10 15 L3 12 L10 9 Z" fill="${color}" opacity="0.85" stroke="${color}" stroke-width="0.5"/>
+      </svg>
+    </div>
+  `;
+}
+
 export default function MapContainer() {
   const [satellites, setSatellites] = useState<SatellitePosition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -741,6 +792,10 @@ export default function MapContainer() {
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [orbitPath, setOrbitPath] = useState<{ lat: number; lng: number; alt: number }[][]>([]);
+  const [mode, setMode] = useState<'space' | 'aviation'>('space');
+  const [aircraft, setAircraft] = useState<Aircraft[]>([]);
+  const [selectedAircraft, setSelectedAircraft] = useState<Aircraft | null>(null);
+  const [aircraftLoading, setAircraftLoading] = useState(false);
   const globeRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const tleMapRef = useRef<Record<number, { line1: string; line2: string }>>({});
@@ -775,6 +830,31 @@ export default function MapContainer() {
     const interval = setInterval(fetchLaunches, 15 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Aircraft fetch (15s interval, only in aviation mode)
+  useEffect(() => {
+    if (mode !== 'aviation') return;
+    setAircraftLoading(true);
+    const fetchAircraft = async () => {
+      const data = await fetchAircraftPositions();
+      setAircraft(data);
+      setAircraftLoading(false);
+    };
+    fetchAircraft();
+    const interval = setInterval(fetchAircraft, 15000);
+    return () => clearInterval(interval);
+  }, [mode]);
+
+  // Update selected aircraft on refresh
+  useEffect(() => {
+    if (!selectedAircraft) return;
+    const updated = aircraft.find(a => a.icao24 === selectedAircraft.icao24);
+    if (updated) {
+      setSelectedAircraft(updated);
+    } else {
+      setSelectedAircraft(null);
+    }
+  }, [aircraft]);
 
   // Track container size for Globe
   useEffect(() => {
@@ -841,46 +921,68 @@ export default function MapContainer() {
         AGENCY_FILTERS.some(a => activeFilters.has(a.id) && a.matchTerms.some(t => l.provider.toLowerCase().includes(t.toLowerCase())))
       );
 
+  const isAviation = mode === 'aviation';
+
   // Build combined marker data array
-  const htmlElements: MarkerData[] = [
-    ...filteredSatellites.map(sat => ({
-      kind: 'satellite' as const,
-      lat: sat.lat,
-      lng: sat.lng,
-      altitude: Math.min(sat.altitude / 6371 * 0.3, 0.5),
-      data: sat,
-      html: createSatelliteMarkerHtml(sat.type),
-    })),
-    ...filteredLaunches.map(launch => ({
-      kind: 'launch' as const,
-      lat: launch.padLat,
-      lng: launch.padLng,
-      altitude: 0.01,
-      data: launch,
-      html: createLaunchMarkerHtml(launch.status),
-    })),
-    ...CONFLICT_LOCATIONS.map(loc => ({
-      kind: 'conflict' as const,
-      lat: loc.lat,
-      lng: loc.lng,
-      altitude: 0.015,
-      data: loc,
-      html: createConflictMarkerHtml(loc.type),
-    })),
-    ...(selectedSatellite ? [{
-      kind: 'satellite' as const,
-      lat: selectedSatellite.lat,
-      lng: selectedSatellite.lng,
-      altitude: Math.min(selectedSatellite.altitude / 6371 * 0.3, 0.5) + 0.01,
-      data: selectedSatellite,
-      html: `<div style="font:700 11px monospace;color:${getSatelliteColor(selectedSatellite.type)};text-shadow:0 0 8px #000,0 0 16px #000;pointer-events:none;white-space:nowrap;transform:translateY(-24px)">${selectedSatellite.name}</div>`,
-    }] : []),
-  ];
+  const htmlElements: MarkerData[] = isAviation
+    ? [
+        ...aircraft.map(ac => ({
+          kind: 'aircraft' as const,
+          lat: ac.lat,
+          lng: ac.lng,
+          altitude: 0.005 + (ac.altitude != null ? ac.altitude / 6371000 * 5 : 0.01),
+          data: ac,
+          html: createAircraftMarkerHtml(ac.heading, ac.altitude),
+        })),
+        ...(selectedAircraft ? [{
+          kind: 'aircraft' as const,
+          lat: selectedAircraft.lat,
+          lng: selectedAircraft.lng,
+          altitude: 0.02,
+          data: selectedAircraft,
+          html: `<div style="font:700 11px monospace;color:${getAircraftAltitudeColor(selectedAircraft.altitude)};text-shadow:0 0 8px #000,0 0 16px #000;pointer-events:none;white-space:nowrap;transform:translateY(-24px)">${selectedAircraft.callsign || selectedAircraft.icao24}</div>`,
+        }] : []),
+      ]
+    : [
+        ...filteredSatellites.map(sat => ({
+          kind: 'satellite' as const,
+          lat: sat.lat,
+          lng: sat.lng,
+          altitude: Math.min(sat.altitude / 6371 * 0.3, 0.5),
+          data: sat,
+          html: createSatelliteMarkerHtml(sat.type),
+        })),
+        ...filteredLaunches.map(launch => ({
+          kind: 'launch' as const,
+          lat: launch.padLat,
+          lng: launch.padLng,
+          altitude: 0.01,
+          data: launch,
+          html: createLaunchMarkerHtml(launch.status),
+        })),
+        ...CONFLICT_LOCATIONS.map(loc => ({
+          kind: 'conflict' as const,
+          lat: loc.lat,
+          lng: loc.lng,
+          altitude: 0.015,
+          data: loc,
+          html: createConflictMarkerHtml(loc.type),
+        })),
+        ...(selectedSatellite ? [{
+          kind: 'satellite' as const,
+          lat: selectedSatellite.lat,
+          lng: selectedSatellite.lng,
+          altitude: Math.min(selectedSatellite.altitude / 6371 * 0.3, 0.5) + 0.01,
+          data: selectedSatellite,
+          html: `<div style="font:700 11px monospace;color:${getSatelliteColor(selectedSatellite.type)};text-shadow:0 0 8px #000,0 0 16px #000;pointer-events:none;white-space:nowrap;transform:translateY(-24px)">${selectedSatellite.name}</div>`,
+        }] : []),
+      ];
 
   const handleMarkerClick = useCallback((d: any) => {
     if (d.kind === 'satellite') {
       setSelectedLaunch(null);
       setSelectedConflict(null);
+      setSelectedAircraft(null);
       setSelectedSatellite(d.data as SatellitePosition);
       const sat = d.data as SatellitePosition;
       const zoomAlt = sat.altitude > 10000 ? 2.5 : 1.2;
@@ -888,11 +990,20 @@ export default function MapContainer() {
     } else if (d.kind === 'launch') {
       setSelectedSatellite(null);
       setSelectedConflict(null);
+      setSelectedAircraft(null);
       setSelectedLaunch(d.data as Launch);
     } else if (d.kind === 'conflict') {
       setSelectedSatellite(null);
       setSelectedLaunch(null);
+      setSelectedAircraft(null);
       setSelectedConflict(d.data as ConflictLocation);
+    } else if (d.kind === 'aircraft') {
+      setSelectedSatellite(null);
+      setSelectedLaunch(null);
+      setSelectedConflict(null);
+      setSelectedAircraft(d.data as Aircraft);
+      const ac = d.data as Aircraft;
+      globeRef.current?.pointOfView({ lat: ac.lat, lng: ac.lng, altitude: 0.5 }, 1000);
     }
   }, []);
 
@@ -900,9 +1011,10 @@ export default function MapContainer() {
     setSelectedSatellite(null);
     setSelectedLaunch(null);
     setSelectedConflict(null);
+    setSelectedAircraft(null);
   }, []);
 
-  const sidebarOpen = selectedSatellite || selectedLaunch || selectedConflict;
+  const sidebarOpen = selectedSatellite || selectedLaunch || selectedConflict || selectedAircraft;
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -917,8 +1029,8 @@ export default function MapContainer() {
           }
           backgroundImageUrl="https://unpkg.com/three-globe/example/img/night-sky.png"
           backgroundColor="rgba(0,0,0,0)"
-          atmosphereColor="#00d9ff"
-          atmosphereAltitude={0.25}
+          atmosphereColor={isAviation ? '#ff9f43' : '#00d9ff'}
+          atmosphereAltitude={isAviation ? 0.18 : 0.25}
 
           htmlElementsData={htmlElements}
           htmlLat={(d: any) => d.lat}
@@ -936,13 +1048,13 @@ export default function MapContainer() {
             return el;
           }}
 
-          polygonsData={CONFLICT_ZONE_GEOJSON}
+          polygonsData={isAviation ? [] : CONFLICT_ZONE_GEOJSON}
           polygonCapColor={() => 'rgba(200, 50, 50, 0.08)'}
           polygonSideColor={() => 'rgba(200, 50, 50, 0.03)'}
           polygonStrokeColor={() => 'rgba(239, 68, 68, 0.25)'}
           polygonAltitude={() => 0.003}
 
-          pathsData={orbitPath.map((seg, i) => ({ points: seg, idx: i }))}
+          pathsData={isAviation ? [] : orbitPath.map((seg, i) => ({ points: seg, idx: i }))}
           pathPoints="points"
           pathPointLat={(p: any) => p.lat}
           pathPointLng={(p: any) => p.lng}
@@ -954,7 +1066,7 @@ export default function MapContainer() {
           pathDashAnimateTime={15000}
           pathTransitionDuration={1000}
 
-          ringsData={selectedSatellite ? [{ lat: selectedSatellite.lat, lng: selectedSatellite.lng }] : []}
+          ringsData={!isAviation && selectedSatellite ? [{ lat: selectedSatellite.lat, lng: selectedSatellite.lng }] : []}
           ringLat="lat"
           ringLng="lng"
           ringAltitude={0}
@@ -973,7 +1085,46 @@ export default function MapContainer() {
         />
       )}
 
-      {/* Filter Button */}
+      {/* Mode Toggle */}
+      <div style={{
+        position: 'absolute', top: '16px', left: '16px', zIndex: 20,
+        display: 'flex',
+        background: 'rgba(15, 23, 42, 0.85)',
+        backdropFilter: 'blur(8px)',
+        borderRadius: '6px',
+        border: `1px solid ${isAviation ? 'rgba(255, 159, 67, 0.25)' : 'rgba(0, 217, 255, 0.15)'}`,
+        overflow: 'hidden',
+        transition: 'border-color 0.3s ease',
+      }}>
+        <button
+          onClick={() => { setMode('space'); setSelectedAircraft(null); }}
+          style={{
+            padding: '8px 16px', fontSize: '11px', fontFamily: 'monospace', fontWeight: '600',
+            letterSpacing: '1.5px', border: 'none', cursor: 'pointer', transition: 'all 0.2s ease',
+            background: mode === 'space' ? 'rgba(0, 217, 255, 0.15)' : 'transparent',
+            color: mode === 'space' ? '#00d9ff' : '#64748b',
+          }}
+        >SPACE</button>
+        <button
+          onClick={() => {
+            setMode('aviation');
+            setSelectedSatellite(null);
+            setSelectedLaunch(null);
+            setSelectedConflict(null);
+            setFilterPanelOpen(false);
+          }}
+          style={{
+            padding: '8px 16px', fontSize: '11px', fontFamily: 'monospace', fontWeight: '600',
+            letterSpacing: '1.5px', border: 'none', cursor: 'pointer', transition: 'all 0.2s ease',
+            borderLeft: '1px solid rgba(100, 116, 139, 0.2)',
+            background: mode === 'aviation' ? 'rgba(255, 159, 67, 0.15)' : 'transparent',
+            color: mode === 'aviation' ? '#ff9f43' : '#64748b',
+          }}
+        >AVIATION</button>
+      </div>
+
+      {/* Filter Button (Space mode only) */}
+      {!isAviation && (
       <button
         onClick={() => setFilterPanelOpen(prev => !prev)}
         style={{
@@ -999,9 +1150,10 @@ export default function MapContainer() {
           <polygon points="22,3 2,3 10,12.46 10,19 14,21 14,12.46" />
         </svg>
       </button>
+      )}
 
-      {/* Filter Panel */}
-      {filterPanelOpen && (
+      {/* Filter Panel (Space mode only) */}
+      {!isAviation && filterPanelOpen && (
         <div style={{
           position: 'absolute',
           bottom: '72px',
@@ -1420,6 +1572,108 @@ export default function MapContainer() {
         </div>
       )}
 
+      {/* Aircraft Details Sidebar */}
+      {selectedAircraft && (
+        <div style={{
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: '420px',
+          background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 14, 39, 0.98) 100%)',
+          borderLeft: '1px solid rgba(255, 159, 67, 0.3)',
+          boxShadow: '-8px 0 32px rgba(0, 0, 0, 0.5)',
+          zIndex: 100, overflow: 'auto', fontFamily: 'Geist Sans, system-ui, sans-serif',
+        }}>
+          <button onClick={() => setSelectedAircraft(null)} style={{
+            position: 'absolute', top: '16px', right: '16px',
+            background: 'rgba(255, 159, 67, 0.1)', border: '1px solid rgba(255, 159, 67, 0.3)', color: '#ff9f43',
+            width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', fontSize: '18px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease', zIndex: 101,
+          }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 159, 67, 0.2)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255, 159, 67, 0.1)'; }}
+          >&#10005;</button>
+
+          <div style={{ padding: '32px 24px 24px', borderBottom: '1px solid rgba(255, 159, 67, 0.2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{
+                width: '12px', height: '12px', borderRadius: '50%',
+                background: getAircraftAltitudeColor(selectedAircraft.altitude),
+                boxShadow: `0 0 8px ${getAircraftAltitudeColor(selectedAircraft.altitude)}`,
+              }} />
+              <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: '600', fontFamily: 'monospace' }}>
+                ICAO {selectedAircraft.icao24.toUpperCase()}
+              </span>
+            </div>
+            <h2 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '700', color: '#e2e8f0', letterSpacing: '0.5px' }}>
+              {selectedAircraft.callsign || 'UNKNOWN'}
+            </h2>
+            <span style={{ padding: '2px 8px', fontSize: '10px', color: '#ff9f43', border: '1px solid rgba(255, 159, 67, 0.4)', borderRadius: '3px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600', fontFamily: 'monospace' }}>
+              {selectedAircraft.originCountry}
+            </span>
+          </div>
+
+          <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255, 159, 67, 0.2)' }}>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Current Position</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LATITUDE</p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>{selectedAircraft.lat.toFixed(4)}&deg;</p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LONGITUDE</p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>{selectedAircraft.lng.toFixed(4)}&deg;</p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>ALTITUDE</p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>
+                  {selectedAircraft.altitude != null ? `${Math.round(selectedAircraft.altitude * 3.281).toLocaleString()} ft` : 'N/A'}
+                </p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>GEO ALTITUDE</p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>
+                  {selectedAircraft.geoAltitude != null ? `${Math.round(selectedAircraft.geoAltitude * 3.281).toLocaleString()} ft` : 'N/A'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255, 159, 67, 0.2)' }}>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Flight Data</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>GROUND SPEED</p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>
+                  {selectedAircraft.velocity != null ? `${Math.round(selectedAircraft.velocity * 1.944)} kts` : 'N/A'}
+                </p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>HEADING</p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>
+                  {selectedAircraft.heading != null ? `${Math.round(selectedAircraft.heading)}\u00B0` : 'N/A'}
+                </p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>VERTICAL RATE</p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>
+                  {selectedAircraft.verticalRate != null ? `${Math.round(selectedAircraft.verticalRate * 196.85)} ft/min` : 'N/A'}
+                </p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>SQUAWK</p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>
+                  {selectedAircraft.squawk || 'N/A'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding: '20px 24px' }}>
+            <p style={{ margin: '0', fontSize: '10px', color: '#475569', lineHeight: '1.5', fontStyle: 'italic', fontFamily: 'monospace' }}>
+              Live data via OpenSky Network. Positions update every 15 seconds.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Overlay Backdrop when sidebar is open */}
       {sidebarOpen && (
         <div
@@ -1437,7 +1691,7 @@ export default function MapContainer() {
       )}
 
       {/* Status Indicator */}
-      {!loading && (
+      {!loading && !(isAviation && aircraftLoading) && (
         <div style={{
           position: 'absolute',
           top: '16px',
@@ -1447,21 +1701,29 @@ export default function MapContainer() {
           backdropFilter: 'blur(8px)',
           padding: '8px 14px',
           borderRadius: '4px',
-          border: '1px solid rgba(0, 217, 255, 0.15)',
+          border: `1px solid ${isAviation ? 'rgba(255, 159, 67, 0.15)' : 'rgba(0, 217, 255, 0.15)'}`,
           display: 'flex',
           gap: '16px',
         }}>
-          <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
-            <span style={{ color: '#00d9ff', fontWeight: '600' }}>{filteredSatellites.length}</span> SAT
-          </p>
-          {filteredLaunches.length > 0 && (
+          {isAviation ? (
             <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
-              <span style={{ color: '#ff6b35', fontWeight: '600' }}>{filteredLaunches.length}</span> ROCKETS
+              <span style={{ color: '#ff9f43', fontWeight: '600' }}>{aircraft.length}</span> AIRCRAFT
             </p>
+          ) : (
+            <>
+              <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
+                <span style={{ color: '#00d9ff', fontWeight: '600' }}>{filteredSatellites.length}</span> SAT
+              </p>
+              {filteredLaunches.length > 0 && (
+                <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
+                  <span style={{ color: '#ff6b35', fontWeight: '600' }}>{filteredLaunches.length}</span> ROCKETS
+                </p>
+              )}
+            </>
           )}
         </div>
       )}
-      {loading && (
+      {(loading || (isAviation && aircraftLoading)) && (
         <div style={{
           position: 'absolute',
           top: '16px',
