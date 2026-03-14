@@ -159,6 +159,20 @@ const TRACKED_SATELLITES = [
   { noradId: 44421, name: 'Lemur-2-133', type: 'Weather', operator: 'Spire' },
 ];
 
+// Organization filter mapping — matchTerms checked via includes() so joint ops match both parents
+const AGENCY_FILTERS = [
+  { id: 'nasa',       label: 'NASA',       color: '#4a90d9', matchTerms: ['NASA', 'USGS'] },
+  { id: 'esa',        label: 'ESA',        color: '#4a7dd9', matchTerms: ['ESA', 'Arianespace'] },
+  { id: 'isro',       label: 'ISRO',       color: '#ff9933', matchTerms: ['ISRO', 'Indian Space Research'] },
+  { id: 'jaxa',       label: 'JAXA',       color: '#6b8dd6', matchTerms: ['JAXA', 'Japan Aerospace'] },
+  { id: 'cnsa',       label: 'CNSA',       color: '#de4444', matchTerms: ['CNSA', 'CASC', 'China Aerospace'] },
+  { id: 'noaa',       label: 'NOAA',       color: '#3b82f6', matchTerms: ['NOAA'] },
+  { id: 'eumetsat',   label: 'EUMETSAT',   color: '#60a5fa', matchTerms: ['EUMETSAT'] },
+  { id: 'ussf',       label: 'USSF',       color: '#94a3b8', matchTerms: ['USSF'] },
+  { id: 'csa',        label: 'CSA',        color: '#ef4444', matchTerms: ['CSA', 'MDA'] },
+  { id: 'commercial', label: 'Commercial', color: '#a78bfa', matchTerms: ['Planet', 'Spire', 'Maxar', 'ASI', 'KARI', 'CNES', 'SpaceX', 'Rocket Lab', 'Blue Origin', 'ULA', 'United Launch'] },
+];
+
 // Default metadata for satellites (used as fallback when real data is available)
 const SATELLITE_METADATA: { [key: number]: { purpose: string; inclination: number; orbitalPeriod: number; launchDate: string; mass: number; apogee: number; perigee: number; powerSource: string; instruments: string[] } } = {
   25544: { purpose: 'Human spaceflight & research', inclination: 51.6, orbitalPeriod: 92.9, launchDate: '1998-11-20', mass: 420000, apogee: 419, perigee: 406, powerSource: 'Solar panels', instruments: ['Cupola Observation Module', 'Destiny Lab', 'Canadarm2'] },
@@ -200,44 +214,10 @@ const CONFLICT_LOCATIONS: ConflictLocation[] = [
     name: 'Gaza Strip',
     lat: 31.3547,
     lng: 34.3088,
-    type: 'active_conflict',
-    description: 'Ongoing military operations in Gaza Strip. Severe humanitarian crisis with displaced populations and restricted aid access.',
-    casualties: '40,000+ reported casualties since Oct 2023',
+    type: 'humanitarian',
+    description: 'Post-ceasefire reconstruction zone. Ongoing humanitarian aid operations and population displacement.',
+    casualties: '45,000+ total since Oct 2023',
     startDate: '2023-10-07',
-  },
-  {
-    id: 'south-lebanon',
-    name: 'Southern Lebanon',
-    lat: 33.27,
-    lng: 35.20,
-    type: 'active_conflict',
-    description: 'Cross-border exchanges between Hezbollah and IDF. Buffer zone established per UN Resolution 1701.',
-    startDate: '2023-10-08',
-  },
-  {
-    id: 'yemen-houthi',
-    name: 'Yemen (Houthi-controlled)',
-    lat: 15.3694,
-    lng: 44.191,
-    type: 'active_conflict',
-    description: 'Houthi forces conducting Red Sea shipping attacks. US/UK coalition conducting strikes against Houthi targets.',
-    startDate: '2023-11-19',
-  },
-  {
-    id: 'syria-ne',
-    name: 'Northeast Syria',
-    lat: 36.20,
-    lng: 40.15,
-    type: 'tension_zone',
-    description: 'Post-Assad transition zone. Turkish-backed forces, SDF, and residual ISIS activity.',
-  },
-  {
-    id: 'iran',
-    name: 'Isfahan, Iran',
-    lat: 32.6546,
-    lng: 51.6680,
-    type: 'tension_zone',
-    description: 'Iranian nuclear enrichment facilities. Subject to international monitoring and sanctions.',
   },
   {
     id: 'west-bank',
@@ -245,45 +225,82 @@ const CONFLICT_LOCATIONS: ConflictLocation[] = [
     lat: 31.9522,
     lng: 35.2332,
     type: 'humanitarian',
-    description: 'Increased military operations and settler violence. Movement restrictions affecting Palestinian population.',
+    description: 'Ongoing military raids and settlement expansion. Restricted movement and humanitarian access.',
+  },
+  {
+    id: 'iran-isfahan',
+    name: 'Isfahan, Iran',
+    lat: 32.6546,
+    lng: 51.6680,
+    type: 'tension_zone',
+    description: 'Nuclear enrichment facilities under elevated IAEA monitoring. Subject to international sanctions and regional escalation risk.',
+  },
+  {
+    id: 'iran-bushehr',
+    name: 'Bushehr, Iran',
+    lat: 28.9234,
+    lng: 50.8203,
+    type: 'tension_zone',
+    description: 'Bushehr nuclear power plant. Strategic coastal facility near Strait of Hormuz.',
+  },
+  {
+    id: 'strait-hormuz',
+    name: 'Strait of Hormuz',
+    lat: 26.56,
+    lng: 56.25,
+    type: 'tension_zone',
+    description: 'Critical oil transit chokepoint. ~21% of global petroleum passes through. Heightened naval tensions between Iran and US/allied forces.',
+  },
+  {
+    id: 'syria-golan',
+    name: 'Golan Heights / Southern Syria',
+    lat: 33.10,
+    lng: 35.88,
+    type: 'tension_zone',
+    description: 'Israeli buffer zone expansion. Post-Assad transition instability with Iranian proxy withdrawal.',
   },
   {
     id: 'red-sea',
     name: 'Red Sea / Bab el-Mandeb',
-    lat: 12.58,
-    lng: 43.33,
+    lat: 13.50,
+    lng: 42.50,
     type: 'active_conflict',
-    description: 'Houthi attacks on commercial shipping. Major disruption to global trade route (12% of world trade).',
+    description: 'Houthi anti-shipping campaign disrupting 12% of world trade. US/UK coalition strikes ongoing.',
+    startDate: '2023-11-19',
+  },
+  {
+    id: 'lebanon-south',
+    name: 'Southern Lebanon',
+    lat: 33.27,
+    lng: 35.50,
+    type: 'tension_zone',
+    description: 'Post-ceasefire buffer zone. UNIFIL monitoring. Hezbollah reorganization and Israeli surveillance operations.',
   },
 ];
 
-const CONFLICT_ZONE_GEOJSON = {
-  type: 'Feature' as const,
-  properties: { name: 'West Asia Conflict Zone' },
-  geometry: {
-    type: 'Polygon' as const,
-    coordinates: [[
-      [32.0, 29.5],
-      [34.0, 29.5],
-      [35.5, 31.0],
-      [36.0, 33.0],
-      [36.5, 34.5],
-      [42.0, 37.5],
-      [51.0, 37.5],
-      [57.0, 35.0],
-      [57.0, 25.0],
-      [51.0, 23.5],
-      [48.0, 28.0],
-      [44.0, 29.5],
-      [43.0, 12.0],
-      [42.5, 12.5],
-      [40.0, 15.0],
-      [38.0, 22.0],
-      [34.5, 27.5],
-      [32.0, 29.5],
-    ]],
+const CONFLICT_ZONE_GEOJSON = [
+  {
+    type: 'Feature' as const,
+    properties: { name: 'Israel-Iran / Gulf Tension Zone' },
+    geometry: {
+      type: 'Polygon' as const,
+      coordinates: [[
+        [34.0, 29.5],
+        [36.0, 33.5],
+        [37.0, 34.0],
+        [42.0, 34.0],
+        [48.0, 33.5],
+        [52.0, 33.0],
+        [56.5, 27.0],
+        [56.5, 24.0],
+        [51.0, 24.5],
+        [45.0, 28.0],
+        [40.0, 29.0],
+        [34.0, 29.5],
+      ]],
+    },
   },
-};
+];
 
 // Convert ECI to Lat/Lng using simplified gravity model
 function eciToLatLng(eci: any) {
@@ -303,7 +320,7 @@ function getDistance(eci: any) {
 }
 
 // Fetch TLE data from Celestrak and compute real satellite positions
-async function fetchRealSatellitePositions(): Promise<SatellitePosition[]> {
+async function fetchRealSatellitePositions(): Promise<{ positions: SatellitePosition[]; tleMap: Record<number, { line1: string; line2: string }> }> {
   try {
     const response = await fetch('/api/tle');
     if (!response.ok) throw new Error('Failed to fetch TLE data from API');
@@ -388,10 +405,10 @@ async function fetchRealSatellitePositions(): Promise<SatellitePosition[]> {
     }
 
     console.log(`Fetched ${positions.length} real satellites from Celestrak`);
-    return positions.length >= 5 ? positions : generateMockPositions();
+    return positions.length >= 5 ? { positions, tleMap } : { positions: generateMockPositions(), tleMap };
   } catch (error) {
     console.error('Error fetching real satellite data:', error);
-    return generateMockPositions();
+    return { positions: generateMockPositions(), tleMap: {} };
   }
 }
 
@@ -411,6 +428,57 @@ function generateMockPositions(): SatellitePosition[] {
       status: 'Active',
     };
   });
+}
+
+// Compute one full orbit as an array of {lat, lng, alt} points
+function computeOrbitPath(
+  noradId: number,
+  tleMap: Record<number, { line1: string; line2: string }>,
+  orbitalPeriodMin: number,
+  numPoints = 180
+): { lat: number; lng: number; alt: number }[] {
+  const tle = tleMap[noradId];
+  if (!tle) return [];
+
+  try {
+    const satrec = twoline2satrec(tle.line1, tle.line2);
+    const now = Date.now();
+    const periodMs = orbitalPeriodMin * 60 * 1000;
+    const stepMs = periodMs / numPoints;
+    const startMs = now - periodMs / 2;
+    const points: { lat: number; lng: number; alt: number }[] = [];
+
+    for (let i = 0; i <= numPoints; i++) {
+      const t = new Date(startMs + i * stepMs);
+      const posVel = propagate(satrec, t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate(), t.getUTCHours(), t.getUTCMinutes(), t.getUTCSeconds());
+      if (!posVel || !posVel.position || typeof posVel.position === 'boolean') continue;
+      const { lat, lng } = eciToLatLng(posVel.position);
+      const distKm = getDistance(posVel.position);
+      const alt = Math.max(0, distKm - 6371);
+      if (isNaN(lat) || isNaN(lng)) continue;
+      points.push({
+        lat: Math.max(-90, Math.min(90, lat)),
+        lng: ((lng + 180) % 360) - 180,
+        alt: Math.min(alt / 6371 * 0.3, 0.5),
+      });
+    }
+    return points;
+  } catch {
+    return [];
+  }
+}
+
+// Split path at large longitude jumps (crossing antimeridian)
+function splitPathAtBoundary(points: { lat: number; lng: number; alt: number }[]): { lat: number; lng: number; alt: number }[][] {
+  if (points.length === 0) return [];
+  const segments: { lat: number; lng: number; alt: number }[][] = [[]];
+  for (let i = 0; i < points.length; i++) {
+    segments[segments.length - 1].push(points[i]);
+    if (i < points.length - 1 && Math.abs(points[i + 1].lng - points[i].lng) > 180) {
+      segments.push([]);
+    }
+  }
+  return segments.filter(s => s.length > 1);
 }
 
 async function fetchUpcomingLaunches(): Promise<Launch[]> {
@@ -641,22 +709,22 @@ function createLaunchMarkerHtml(status: string): string {
 }
 
 function getConflictColor(type: ConflictLocation['type']): string {
-  if (type === 'active_conflict') return '#ef4444';
-  if (type === 'tension_zone') return '#f59e0b';
-  return '#f97316';
+  if (type === 'active_conflict') return '#dc2626';
+  if (type === 'tension_zone') return '#d97706';
+  return '#ea580c';
 }
 
 function createConflictMarkerHtml(type: ConflictLocation['type']): string {
   const color = getConflictColor(type);
-  const iconSize = 28;
+  const iconSize = 24;
 
   return `
-    <div class="conflict-marker" style="width:${iconSize}px;height:${iconSize}px;filter:drop-shadow(0 0 6px ${color}80) drop-shadow(0 0 12px ${color}40);pointer-events:auto;cursor:pointer;">
+    <div class="conflict-marker" style="width:${iconSize}px;height:${iconSize}px;filter:drop-shadow(0 0 4px ${color}60) drop-shadow(0 0 8px ${color}30);pointer-events:auto;cursor:pointer;">
       <svg width="${iconSize}" height="${iconSize}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"
            style="color:${color};stroke:${color};overflow:visible;">
-        <path d="M12 2 L22 20 L2 20 Z" fill="none" stroke-width="1.5"/>
-        <line x1="12" y1="9" x2="12" y2="14" stroke-width="1.5"/>
-        <circle cx="12" cy="17" r="1" fill="currentColor"/>
+        <path d="M12 2 L22 20 L2 20 Z" fill="${color}15" stroke-width="1.2"/>
+        <line x1="12" y1="9" x2="12" y2="14" stroke-width="1.2"/>
+        <circle cx="12" cy="17" r="0.8" fill="currentColor"/>
       </svg>
     </div>
   `;
@@ -670,14 +738,19 @@ export default function MapContainer() {
   const [selectedLaunch, setSelectedLaunch] = useState<Launch | null>(null);
   const [selectedConflict, setSelectedConflict] = useState<ConflictLocation | null>(null);
   const [globeSize, setGlobeSize] = useState({ width: 0, height: 0 });
+  const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [orbitPath, setOrbitPath] = useState<{ lat: number; lng: number; alt: number }[][]>([]);
   const globeRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const tleMapRef = useRef<Record<number, { line1: string; line2: string }>>({});
 
   // Satellite fetch
   useEffect(() => {
     const fetchSatellitePositions = async () => {
       try {
-        const positions = await fetchRealSatellitePositions();
+        const { positions, tleMap } = await fetchRealSatellitePositions();
+        tleMapRef.current = tleMap;
         setSatellites(positions);
         setLoading(false);
       } catch (error) {
@@ -738,9 +811,39 @@ export default function MapContainer() {
     });
   }, []);
 
+  // Compute orbit path when a satellite is selected
+  useEffect(() => {
+    if (!selectedSatellite) {
+      setOrbitPath([]);
+      return;
+    }
+    const meta = SATELLITE_METADATA[selectedSatellite.id] || DEFAULT_METADATA;
+    const rawPath = computeOrbitPath(selectedSatellite.id, tleMapRef.current, meta.orbitalPeriod);
+    setOrbitPath(splitPathAtBoundary(rawPath));
+  }, [selectedSatellite?.id]);
+
+  // Update selected satellite position on 30s refresh
+  useEffect(() => {
+    if (!selectedSatellite) return;
+    const updated = satellites.find(s => s.id === selectedSatellite.id);
+    if (updated && (updated.lat !== selectedSatellite.lat || updated.lng !== selectedSatellite.lng)) {
+      setSelectedSatellite(updated);
+    }
+  }, [satellites, selectedSatellite?.id]);
+
+  // Filter satellites and launches by selected agencies
+  const filteredSatellites = activeFilters.size === 0 ? satellites
+    : satellites.filter(sat =>
+        AGENCY_FILTERS.some(a => activeFilters.has(a.id) && a.matchTerms.some(t => sat.operator.includes(t)))
+      );
+  const filteredLaunches = activeFilters.size === 0 ? launches
+    : launches.filter(l =>
+        AGENCY_FILTERS.some(a => activeFilters.has(a.id) && a.matchTerms.some(t => l.provider.toLowerCase().includes(t.toLowerCase())))
+      );
+
   // Build combined marker data array
   const htmlElements: MarkerData[] = [
-    ...satellites.map(sat => ({
+    ...filteredSatellites.map(sat => ({
       kind: 'satellite' as const,
       lat: sat.lat,
       lng: sat.lng,
@@ -748,7 +851,7 @@ export default function MapContainer() {
       data: sat,
       html: createSatelliteMarkerHtml(sat.type),
     })),
-    ...launches.map(launch => ({
+    ...filteredLaunches.map(launch => ({
       kind: 'launch' as const,
       lat: launch.padLat,
       lng: launch.padLng,
@@ -764,6 +867,14 @@ export default function MapContainer() {
       data: loc,
       html: createConflictMarkerHtml(loc.type),
     })),
+    ...(selectedSatellite ? [{
+      kind: 'satellite' as const,
+      lat: selectedSatellite.lat,
+      lng: selectedSatellite.lng,
+      altitude: Math.min(selectedSatellite.altitude / 6371 * 0.3, 0.5) + 0.01,
+      data: selectedSatellite,
+      html: `<div style="font:700 11px monospace;color:${getSatelliteColor(selectedSatellite.type)};text-shadow:0 0 8px #000,0 0 16px #000;pointer-events:none;white-space:nowrap;transform:translateY(-24px)">${selectedSatellite.name}</div>`,
+    }] : []),
   ];
 
   const handleMarkerClick = useCallback((d: any) => {
@@ -771,6 +882,9 @@ export default function MapContainer() {
       setSelectedLaunch(null);
       setSelectedConflict(null);
       setSelectedSatellite(d.data as SatellitePosition);
+      const sat = d.data as SatellitePosition;
+      const zoomAlt = sat.altitude > 10000 ? 2.5 : 1.2;
+      globeRef.current?.pointOfView({ lat: sat.lat, lng: sat.lng, altitude: zoomAlt }, 1000);
     } else if (d.kind === 'launch') {
       setSelectedSatellite(null);
       setSelectedConflict(null);
@@ -822,14 +936,147 @@ export default function MapContainer() {
             return el;
           }}
 
-          polygonsData={[CONFLICT_ZONE_GEOJSON]}
-          polygonCapColor={() => 'rgba(220, 50, 50, 0.15)'}
-          polygonSideColor={() => 'rgba(220, 50, 50, 0.05)'}
-          polygonStrokeColor={() => 'rgba(255, 107, 53, 0.6)'}
-          polygonAltitude={() => 0.005}
+          polygonsData={CONFLICT_ZONE_GEOJSON}
+          polygonCapColor={() => 'rgba(200, 50, 50, 0.08)'}
+          polygonSideColor={() => 'rgba(200, 50, 50, 0.03)'}
+          polygonStrokeColor={() => 'rgba(239, 68, 68, 0.25)'}
+          polygonAltitude={() => 0.003}
+
+          pathsData={orbitPath.map((seg, i) => ({ points: seg, idx: i }))}
+          pathPoints="points"
+          pathPointLat={(p: any) => p.lat}
+          pathPointLng={(p: any) => p.lng}
+          pathPointAlt={(p: any) => p.alt}
+          pathColor={() => selectedSatellite ? getSatelliteColor(selectedSatellite.type) + '80' : '#00d9ff80'}
+          pathStroke={1.5}
+          pathDashLength={0.01}
+          pathDashGap={0.004}
+          pathDashAnimateTime={15000}
+          pathTransitionDuration={1000}
+
+          ringsData={selectedSatellite ? [{ lat: selectedSatellite.lat, lng: selectedSatellite.lng }] : []}
+          ringLat="lat"
+          ringLng="lng"
+          ringAltitude={0}
+          ringColor={() => {
+            const color = selectedSatellite ? getSatelliteColor(selectedSatellite.type) : '#00d9ff';
+            const r = parseInt(color.slice(1, 3), 16);
+            const g = parseInt(color.slice(3, 5), 16);
+            const b = parseInt(color.slice(5, 7), 16);
+            return (t: number) => `rgba(${r},${g},${b},${1 - t})`;
+          }}
+          ringMaxRadius={3}
+          ringPropagationSpeed={2}
+          ringRepeatPeriod={1500}
 
           onGlobeReady={handleGlobeReady}
         />
+      )}
+
+      {/* Filter Button */}
+      <button
+        onClick={() => setFilterPanelOpen(prev => !prev)}
+        style={{
+          position: 'absolute',
+          bottom: '24px',
+          left: '24px',
+          zIndex: 20,
+          width: '40px',
+          height: '40px',
+          borderRadius: '8px',
+          background: filterPanelOpen ? 'rgba(0, 217, 255, 0.2)' : 'rgba(30, 41, 59, 0.8)',
+          border: `1px solid ${filterPanelOpen ? 'rgba(0, 217, 255, 0.5)' : 'rgba(0, 217, 255, 0.3)'}`,
+          color: '#00d9ff',
+          fontSize: '16px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+        title="Filter by agency"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polygon points="22,3 2,3 10,12.46 10,19 14,21 14,12.46" />
+        </svg>
+      </button>
+
+      {/* Filter Panel */}
+      {filterPanelOpen && (
+        <div style={{
+          position: 'absolute',
+          bottom: '72px',
+          left: '24px',
+          zIndex: 25,
+          background: 'rgba(15, 23, 42, 0.95)',
+          backdropFilter: 'blur(8px)',
+          border: '1px solid rgba(0, 217, 255, 0.2)',
+          borderRadius: '8px',
+          padding: '16px',
+          width: '220px',
+        }}>
+          <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '600', fontFamily: 'monospace' }}>
+            Filter by Agency
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {AGENCY_FILTERS.map(agency => {
+              const isActive = activeFilters.has(agency.id);
+              const satCount = satellites.filter(sat =>
+                agency.matchTerms.some(t => sat.operator.includes(t))
+              ).length;
+              return (
+                <button
+                  key={agency.id}
+                  onClick={() => {
+                    setActiveFilters(prev => {
+                      const next = new Set(prev);
+                      if (next.has(agency.id)) next.delete(agency.id);
+                      else next.add(agency.id);
+                      return next;
+                    });
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '6px 10px',
+                    borderRadius: '4px',
+                    border: `1px solid ${isActive ? agency.color + '80' : 'rgba(100, 116, 139, 0.3)'}`,
+                    background: isActive ? agency.color + '20' : 'transparent',
+                    color: isActive ? agency.color : '#94a3b8',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontFamily: 'monospace',
+                    fontWeight: '600',
+                    letterSpacing: '0.5px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span>{agency.label}</span>
+                  <span style={{ fontSize: '10px', opacity: 0.7 }}>{satCount}</span>
+                </button>
+              );
+            })}
+          </div>
+          {activeFilters.size > 0 && (
+            <button
+              onClick={() => setActiveFilters(new Set())}
+              style={{
+                marginTop: '10px',
+                padding: '4px 8px',
+                background: 'transparent',
+                border: 'none',
+                color: '#64748b',
+                cursor: 'pointer',
+                fontSize: '10px',
+                fontFamily: 'monospace',
+                letterSpacing: '0.5px',
+                textTransform: 'uppercase',
+              }}
+            >
+              Clear Filters
+            </button>
+          )}
+        </div>
       )}
 
       {/* Locate Button */}
@@ -871,13 +1118,13 @@ export default function MapContainer() {
       {selectedSatellite && (
         <div style={{
           position: 'absolute',
-          left: 0,
+          right: 0,
           top: 0,
           bottom: 0,
           width: '420px',
           background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 14, 39, 0.98) 100%)',
-          borderRight: '1px solid rgba(0, 217, 255, 0.3)',
-          boxShadow: '8px 0 32px rgba(0, 0, 0, 0.5)',
+          borderLeft: '1px solid rgba(0, 217, 255, 0.3)',
+          boxShadow: '-8px 0 32px rgba(0, 0, 0, 0.5)',
           zIndex: 100,
           overflow: 'auto',
           fontFamily: 'Geist Sans, system-ui, sans-serif',
@@ -1023,10 +1270,10 @@ export default function MapContainer() {
       {/* Launch Details Sidebar */}
       {selectedLaunch && (
         <div style={{
-          position: 'absolute', left: 0, top: 0, bottom: 0, width: '420px',
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: '420px',
           background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 14, 39, 0.98) 100%)',
-          borderRight: '1px solid rgba(255, 107, 53, 0.3)',
-          boxShadow: '8px 0 32px rgba(0, 0, 0, 0.5)',
+          borderLeft: '1px solid rgba(255, 107, 53, 0.3)',
+          boxShadow: '-8px 0 32px rgba(0, 0, 0, 0.5)',
           zIndex: 100, overflow: 'auto', fontFamily: 'Geist Sans, system-ui, sans-serif',
         }}>
           <button onClick={() => setSelectedLaunch(null)} style={{
@@ -1095,78 +1342,78 @@ export default function MapContainer() {
       {/* Conflict Info Sidebar */}
       {selectedConflict && (
         <div style={{
-          position: 'absolute', left: 0, top: 0, bottom: 0, width: '420px',
-          background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 14, 39, 0.98) 100%)',
-          borderRight: '1px solid rgba(239, 68, 68, 0.3)',
-          boxShadow: '8px 0 32px rgba(0, 0, 0, 0.5)',
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: '420px',
+          background: 'linear-gradient(180deg, rgba(10, 14, 30, 0.98) 0%, rgba(6, 10, 30, 0.98) 100%)',
+          borderLeft: '1px solid rgba(220, 38, 38, 0.2)',
+          boxShadow: '-8px 0 32px rgba(0, 0, 0, 0.6)',
           zIndex: 100, overflow: 'auto', fontFamily: 'Geist Sans, system-ui, sans-serif',
         }}>
           <button onClick={() => setSelectedConflict(null)} style={{
             position: 'absolute', top: '16px', right: '16px',
-            background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#ef4444',
-            width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', fontSize: '18px',
+            background: 'rgba(220, 38, 38, 0.08)', border: '1px solid rgba(220, 38, 38, 0.2)', color: '#dc2626',
+            width: '32px', height: '32px', borderRadius: '4px', cursor: 'pointer', fontSize: '18px',
             display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease', zIndex: 101,
           }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)'; e.currentTarget.style.boxShadow = '0 0 12px rgba(239, 68, 68, 0.4)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; e.currentTarget.style.boxShadow = 'none'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(220, 38, 38, 0.15)'; e.currentTarget.style.boxShadow = '0 0 12px rgba(220, 38, 38, 0.3)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(220, 38, 38, 0.08)'; e.currentTarget.style.boxShadow = 'none'; }}
           >✕</button>
 
-          <div style={{ padding: '32px 24px 24px', borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>
+          <div style={{ padding: '32px 24px 24px', borderBottom: '1px solid rgba(220, 38, 38, 0.12)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
               <div style={{
-                width: '12px', height: '12px', borderRadius: '50%',
+                width: '8px', height: '8px', borderRadius: '50%',
                 background: getConflictColor(selectedConflict.type),
-                boxShadow: `0 0 8px ${getConflictColor(selectedConflict.type)}, 0 0 20px ${getConflictColor(selectedConflict.type)}40`,
+                boxShadow: `0 0 6px ${getConflictColor(selectedConflict.type)}, 0 0 12px ${getConflictColor(selectedConflict.type)}30`,
               }} />
-              <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: '600' }}>
+              <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: '600', fontFamily: 'monospace' }}>
                 {selectedConflict.type.replace('_', ' ')}
               </span>
             </div>
-            <h2 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '700', color: '#e2e8f0', letterSpacing: '0.5px' }}>
+            <h2 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '600', color: '#e2e8f0', letterSpacing: '0.5px' }}>
               {selectedConflict.name}
             </h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ padding: '2px 8px', fontSize: '10px', color: getConflictColor(selectedConflict.type), border: `1px solid ${getConflictColor(selectedConflict.type)}40`, borderRadius: '3px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
+              <span style={{ padding: '2px 8px', fontSize: '9px', color: getConflictColor(selectedConflict.type), border: `1px solid ${getConflictColor(selectedConflict.type)}30`, borderRadius: '2px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600', fontFamily: 'monospace' }}>
                 {selectedConflict.type.replace('_', ' ')}
               </span>
             </div>
           </div>
 
-          <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>
+          <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(220, 38, 38, 0.12)' }}>
             <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Coordinates</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LATITUDE</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#ef4444', fontFamily: 'monospace', fontWeight: '600' }}>{selectedConflict.lat.toFixed(4)}°</p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#dc2626', fontFamily: 'monospace', fontWeight: '600' }}>{selectedConflict.lat.toFixed(4)}°</p>
               </div>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LONGITUDE</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#ef4444', fontFamily: 'monospace', fontWeight: '600' }}>{selectedConflict.lng.toFixed(4)}°</p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#dc2626', fontFamily: 'monospace', fontWeight: '600' }}>{selectedConflict.lng.toFixed(4)}°</p>
               </div>
             </div>
           </div>
 
-          <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>
+          <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(220, 38, 38, 0.12)' }}>
             <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Situation</p>
-            <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1', lineHeight: '1.6' }}>{selectedConflict.description}</p>
+            <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1', lineHeight: '1.7' }}>{selectedConflict.description}</p>
           </div>
 
           {selectedConflict.casualties && (
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(220, 38, 38, 0.12)' }}>
               <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Reported Casualties</p>
-              <p style={{ margin: '0', fontSize: '13px', color: '#ef4444', fontWeight: '600' }}>{selectedConflict.casualties}</p>
+              <p style={{ margin: '0', fontSize: '13px', color: '#dc2626', fontWeight: '600', fontFamily: 'monospace' }}>{selectedConflict.casualties}</p>
             </div>
           )}
 
           {selectedConflict.startDate && (
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(220, 38, 38, 0.12)' }}>
               <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Conflict Start</p>
               <p style={{ margin: '0', fontSize: '13px', color: '#cbd5e1', fontFamily: 'monospace' }}>{selectedConflict.startDate}</p>
             </div>
           )}
 
           <div style={{ padding: '20px 24px' }}>
-            <p style={{ margin: '0', fontSize: '10px', color: '#64748b', lineHeight: '1.5', fontStyle: 'italic' }}>
+            <p style={{ margin: '0', fontSize: '10px', color: '#475569', lineHeight: '1.5', fontStyle: 'italic', fontFamily: 'monospace' }}>
               Data shown for informational purposes. Sources: open intelligence reports.
             </p>
           </div>
@@ -1180,8 +1427,8 @@ export default function MapContainer() {
           style={{
             position: 'absolute',
             top: 0,
-            left: 420,
-            right: 0,
+            left: 0,
+            right: 420,
             bottom: 0,
             zIndex: 50,
             cursor: 'pointer',
@@ -1205,11 +1452,11 @@ export default function MapContainer() {
           gap: '16px',
         }}>
           <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
-            <span style={{ color: '#00d9ff', fontWeight: '600' }}>{satellites.length}</span> SAT
+            <span style={{ color: '#00d9ff', fontWeight: '600' }}>{filteredSatellites.length}</span> SAT
           </p>
-          {launches.length > 0 && (
+          {filteredLaunches.length > 0 && (
             <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
-              <span style={{ color: '#ff6b35', fontWeight: '600' }}>{launches.length}</span> ROCKETS
+              <span style={{ color: '#ff6b35', fontWeight: '600' }}>{filteredLaunches.length}</span> ROCKETS
             </p>
           )}
         </div>

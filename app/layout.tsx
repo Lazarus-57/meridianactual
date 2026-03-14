@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Meridian Actual - Live Spacecraft Tracking",
-  description: "Real-time spacecraft tracking and monitoring system with live data visualization over India",
+  title: "Meridian Actual",
+  description: "Real-time spacecraft tracking and surveillance system. Every satellite. Every launch. Live.",
 };
 
 export default function RootLayout({
