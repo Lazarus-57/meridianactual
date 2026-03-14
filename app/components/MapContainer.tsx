@@ -797,8 +797,11 @@ export default function MapContainer() {
           ref={globeRef}
           width={globeSize.width}
           height={globeSize.height}
-          globeImageUrl="//unpkg.com/three-globe/example/img/earth-night.jpg"
-          backgroundImageUrl="//unpkg.com/three-globe/example/img/night-sky.png"
+          globeImageUrl="https://unpkg.com/three-globe/example/img/earth-night.jpg"
+          globeTileEngineUrl={(x: number, y: number, level: number) =>
+            `https://basemaps.cartocdn.com/dark_all/${level}/${x}/${y}@2x.png`
+          }
+          backgroundImageUrl="https://unpkg.com/three-globe/example/img/night-sky.png"
           backgroundColor="rgba(0,0,0,0)"
           atmosphereColor="#00d9ff"
           atmosphereAltitude={0.25}
@@ -1190,7 +1193,7 @@ export default function MapContainer() {
       {!loading && (
         <div style={{
           position: 'absolute',
-          top: '96px',
+          top: '16px',
           right: '16px',
           zIndex: 20,
           background: 'rgba(15, 23, 42, 0.85)',
@@ -1206,18 +1209,15 @@ export default function MapContainer() {
           </p>
           {launches.length > 0 && (
             <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
-              <span style={{ color: '#ff6b35', fontWeight: '600' }}>{launches.length}</span> LAUNCH
+              <span style={{ color: '#ff6b35', fontWeight: '600' }}>{launches.length}</span> ROCKETS
             </p>
           )}
-          <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
-            <span style={{ color: '#ef4444', fontWeight: '600' }}>{CONFLICT_LOCATIONS.length}</span> ZONE
-          </p>
         </div>
       )}
       {loading && (
         <div style={{
           position: 'absolute',
-          top: '96px',
+          top: '16px',
           right: '16px',
           zIndex: 20,
           background: 'rgba(15, 23, 42, 0.85)',
