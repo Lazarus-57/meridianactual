@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import Globe from 'react-globe.gl';
 import { twoline2satrec, propagate } from 'satellite.js';
 
@@ -750,7 +750,7 @@ function createConflictMarkerHtml(type: ConflictLocation['type']): string {
 
 async function fetchAircraftPositions(): Promise<Aircraft[]> {
   try {
-    const response = await fetch('/api/aircraft');
+    const response = await fetch('/api/aircraft?lamin=6&lamax=36&lomin=68&lomax=98');
     if (!response.ok) throw new Error('Failed to fetch aircraft data');
     const data = await response.json();
     return data.aircraft || [];
@@ -764,18 +764,103 @@ function getAircraftAltitudeColor(altitudeMeters: number | null): string {
   if (altitudeMeters == null) return '#94a3b8';
   const ft = altitudeMeters * 3.281;
   if (ft < 10000) return '#4ade80';
-  if (ft < 25000) return '#fbbf24';
-  if (ft < 35000) return '#60a5fa';
+  if (ft < 25000) return '#38bdf8';
+  if (ft < 35000) return '#818cf8';
   return '#e2e8f0';
+}
+
+// ICAO airline designator -> { name, short } (common carriers over India)
+const AIRLINE_LOOKUP: Record<string, { name: string; short: string }> = {
+  AIC: { name: 'Air India', short: 'Air India' },
+  IGO: { name: 'IndiGo', short: 'IndiGo' },
+  SEJ: { name: 'SpiceJet', short: 'SpiceJet' },
+  AXB: { name: 'Air India Express', short: 'AI Express' },
+  AKJ: { name: 'Akasa Air', short: 'Akasa' },
+  VTI: { name: 'Vistara', short: 'Vistara' },
+  GOW: { name: 'Go First', short: 'Go First' },
+  ALK: { name: 'SriLankan Airlines', short: 'SriLankan' },
+  UAE: { name: 'Emirates', short: 'Emirates' },
+  QTR: { name: 'Qatar Airways', short: 'Qatar' },
+  ETD: { name: 'Etihad Airways', short: 'Etihad' },
+  SIA: { name: 'Singapore Airlines', short: 'Singapore' },
+  THY: { name: 'Turkish Airlines', short: 'Turkish' },
+  DLH: { name: 'Lufthansa', short: 'Lufthansa' },
+  BAW: { name: 'British Airways', short: 'British' },
+  AFR: { name: 'Air France', short: 'Air France' },
+  KLM: { name: 'KLM Royal Dutch', short: 'KLM' },
+  SVA: { name: 'Saudia', short: 'Saudia' },
+  GIA: { name: 'Garuda Indonesia', short: 'Garuda' },
+  MAS: { name: 'Malaysia Airlines', short: 'Malaysia' },
+  THA: { name: 'Thai Airways', short: 'Thai' },
+  CPA: { name: 'Cathay Pacific', short: 'Cathay' },
+  SWR: { name: 'Swiss Intl Air Lines', short: 'SWISS' },
+  ANA: { name: 'All Nippon Airways', short: 'ANA' },
+  JAL: { name: 'Japan Airlines', short: 'JAL' },
+  CCA: { name: 'Air China', short: 'Air China' },
+  CSN: { name: 'China Southern', short: 'China Southern' },
+  CES: { name: 'China Eastern', short: 'China Eastern' },
+  KAL: { name: 'Korean Air', short: 'Korean Air' },
+  AAR: { name: 'Asiana Airlines', short: 'Asiana' },
+  OMA: { name: 'Oman Air', short: 'Oman Air' },
+  GUL: { name: 'Gulf Air', short: 'Gulf Air' },
+  KUW: { name: 'Kuwait Airways', short: 'Kuwait' },
+  FDB: { name: 'flydubai', short: 'flydubai' },
+  AIX: { name: 'Air India Express', short: 'AI Express' },
+  AAL: { name: 'American Airlines', short: 'American' },
+  UAL: { name: 'United Airlines', short: 'United' },
+  DAL: { name: 'Delta Air Lines', short: 'Delta' },
+  QFA: { name: 'Qantas', short: 'Qantas' },
+  BAV: { name: 'Bamboo Airways', short: 'Bamboo' },
+  HVN: { name: 'Vietnam Airlines', short: 'Vietnam' },
+  BMA: { name: 'Blue Dart Aviation', short: 'Blue Dart' },
+  ICE: { name: 'Icelandair', short: 'Icelandair' },
+  FIN: { name: 'Finnair', short: 'Finnair' },
+  SAS: { name: 'Scandinavian Airlines', short: 'SAS' },
+  AUA: { name: 'Austrian Airlines', short: 'Austrian' },
+  MSR: { name: 'EgyptAir', short: 'EgyptAir' },
+  ETH: { name: 'Ethiopian Airlines', short: 'Ethiopian' },
+  RAM: { name: 'Royal Air Maroc', short: 'Royal Air Maroc' },
+  FDX: { name: 'FedEx Express', short: 'FedEx' },
+  UPS: { name: 'UPS Airlines', short: 'UPS' },
+  GTI: { name: 'Atlas Air', short: 'Atlas Air' },
+  IAF: { name: 'Indian Air Force', short: 'Indian AF' },
+};
+
+const AIRCRAFT_CATEGORY_LABELS: Record<number, string> = {
+  0: 'Unknown',
+  1: 'Light (< 15,500 lb)',
+  2: 'Small (15,500–75,000 lb)',
+  3: 'Large (75,000–300,000 lb)',
+  4: 'High Vortex Large',
+  5: 'Heavy (> 300,000 lb)',
+  6: 'High Performance (> 5g)',
+  7: 'Rotorcraft',
+  8: 'Glider / Sailplane',
+  9: 'Lighter than Air',
+  10: 'Skydiver / Parachute',
+  11: 'Ultralight / Paraglider',
+  12: 'UAV / Drone',
+  14: 'Space Vehicle',
+  15: 'Surface Emergency Vehicle',
+  16: 'Surface Service Vehicle',
+  17: 'Fixed Obstacle',
+  18: 'Cluster Obstacle',
+  19: 'Line Obstacle',
+};
+
+function getAirlineFromCallsign(callsign: string | null): { name: string; short: string } | null {
+  if (!callsign || callsign.length < 3) return null;
+  const prefix = callsign.trim().substring(0, 3).toUpperCase();
+  return AIRLINE_LOOKUP[prefix] || null;
 }
 
 function createAircraftMarkerHtml(heading: number | null, altitudeMeters: number | null): string {
   const color = getAircraftAltitudeColor(altitudeMeters);
   const rotation = heading != null ? heading : 0;
   return `
-    <div style="width:18px;height:18px;filter:drop-shadow(0 0 3px ${color}80);pointer-events:auto;cursor:pointer;transform:rotate(${rotation}deg);">
-      <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-        <path d="M12 2 L14 9 L21 12 L14 15 L12 22 L10 15 L3 12 L10 9 Z" fill="${color}" opacity="0.85" stroke="${color}" stroke-width="0.5"/>
+    <div style="width:20px;height:20px;filter:drop-shadow(0 0 4px ${color}90);pointer-events:auto;cursor:pointer;transform:rotate(${rotation}deg);">
+      <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2 L12 9 L19 14 L19 16 L12 13 L12 19 L15 21 L15 22.5 L12 21 L9 22.5 L9 21 L12 19 L12 13 L5 16 L5 14 L12 9 Z" fill="${color}" opacity="0.9" stroke="${color}" stroke-width="0.3"/>
       </svg>
     </div>
   `;
@@ -799,6 +884,8 @@ export default function MapContainer() {
   const globeRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const tleMapRef = useRef<Record<number, { line1: string; line2: string }>>({});
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
 
   // Satellite fetch
   useEffect(() => {
@@ -871,14 +958,19 @@ export default function MapContainer() {
     return () => observer.disconnect();
   }, []);
 
-  // Globe ready: set camera + auto-rotation
+  // Globe ready: set camera + auto-rotation (mode-aware, called on remount)
   const handleGlobeReady = useCallback(() => {
     if (!globeRef.current) return;
 
-    globeRef.current.pointOfView({ lat: 20.5937, lng: 78.9629, altitude: 2.5 }, 0);
+    const isAv = modeRef.current === 'aviation';
+    if (isAv) {
+      globeRef.current.pointOfView({ lat: 22.5, lng: 78.9, altitude: 0.55 }, 0);
+    } else {
+      globeRef.current.pointOfView({ lat: 20.5937, lng: 78.9629, altitude: 2.5 }, 0);
+    }
 
     const controls = globeRef.current.controls();
-    controls.autoRotate = true;
+    controls.autoRotate = !isAv;
     controls.autoRotateSpeed = 0.3;
 
     let idleTimer: ReturnType<typeof setTimeout>;
@@ -887,7 +979,9 @@ export default function MapContainer() {
       clearTimeout(idleTimer);
     });
     controls.addEventListener('end', () => {
-      idleTimer = setTimeout(() => { controls.autoRotate = true; }, 10000);
+      idleTimer = setTimeout(() => {
+        if (modeRef.current === 'space') controls.autoRotate = true;
+      }, 10000);
     });
   }, []);
 
@@ -923,8 +1017,8 @@ export default function MapContainer() {
 
   const isAviation = mode === 'aviation';
 
-  // Build combined marker data array
-  const htmlElements: MarkerData[] = isAviation
+  // Build combined marker data array (memoized)
+  const htmlElements: MarkerData[] = useMemo(() => isAviation
     ? [
         ...aircraft.map(ac => ({
           kind: 'aircraft' as const,
@@ -940,7 +1034,7 @@ export default function MapContainer() {
           lng: selectedAircraft.lng,
           altitude: 0.02,
           data: selectedAircraft,
-          html: `<div style="font:700 11px monospace;color:${getAircraftAltitudeColor(selectedAircraft.altitude)};text-shadow:0 0 8px #000,0 0 16px #000;pointer-events:none;white-space:nowrap;transform:translateY(-24px)">${selectedAircraft.callsign || selectedAircraft.icao24}</div>`,
+          html: `<div style="font:700 11px monospace;color:#7dd3fc;text-shadow:0 0 8px #000,0 0 16px #000;pointer-events:none;white-space:nowrap;transform:translateY(-24px)">${selectedAircraft.callsign || selectedAircraft.icao24}</div>`,
         }] : []),
       ]
     : [
@@ -976,7 +1070,7 @@ export default function MapContainer() {
           data: selectedSatellite,
           html: `<div style="font:700 11px monospace;color:${getSatelliteColor(selectedSatellite.type)};text-shadow:0 0 8px #000,0 0 16px #000;pointer-events:none;white-space:nowrap;transform:translateY(-24px)">${selectedSatellite.name}</div>`,
         }] : []),
-      ];
+      ], [isAviation, aircraft, selectedAircraft, filteredSatellites, filteredLaunches, selectedSatellite]);
 
   const handleMarkerClick = useCallback((d: any) => {
     if (d.kind === 'satellite') {
@@ -1020,17 +1114,20 @@ export default function MapContainer() {
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
       {globeSize.width > 0 && (
         <Globe
+          key={mode}
           ref={globeRef}
           width={globeSize.width}
           height={globeSize.height}
           globeImageUrl="https://unpkg.com/three-globe/example/img/earth-night.jpg"
           globeTileEngineUrl={(x: number, y: number, level: number) =>
-            `https://basemaps.cartocdn.com/dark_all/${level}/${x}/${y}@2x.png`
+            isAviation
+              ? `https://basemaps.cartocdn.com/rastertiles/voyager/${level}/${x}/${y}@2x.png`
+              : `https://basemaps.cartocdn.com/dark_all/${level}/${x}/${y}@2x.png`
           }
           backgroundImageUrl="https://unpkg.com/three-globe/example/img/night-sky.png"
           backgroundColor="rgba(0,0,0,0)"
-          atmosphereColor={isAviation ? '#ff9f43' : '#00d9ff'}
-          atmosphereAltitude={isAviation ? 0.18 : 0.25}
+          atmosphereColor={isAviation ? '#7dd3fc' : '#00d9ff'}
+          atmosphereAltitude={isAviation ? 0.2 : 0.25}
 
           htmlElementsData={htmlElements}
           htmlLat={(d: any) => d.lat}
@@ -1085,42 +1182,48 @@ export default function MapContainer() {
         />
       )}
 
-      {/* Mode Toggle */}
+      {/* Mode Toggle — pill switch */}
       <div style={{
         position: 'absolute', top: '16px', left: '16px', zIndex: 20,
-        display: 'flex',
-        background: 'rgba(15, 23, 42, 0.85)',
-        backdropFilter: 'blur(8px)',
-        borderRadius: '6px',
-        border: `1px solid ${isAviation ? 'rgba(255, 159, 67, 0.25)' : 'rgba(0, 217, 255, 0.15)'}`,
-        overflow: 'hidden',
-        transition: 'border-color 0.3s ease',
+        display: 'flex', alignItems: 'center', gap: '10px',
       }}>
-        <button
-          onClick={() => { setMode('space'); setSelectedAircraft(null); }}
-          style={{
-            padding: '8px 16px', fontSize: '11px', fontFamily: 'monospace', fontWeight: '600',
-            letterSpacing: '1.5px', border: 'none', cursor: 'pointer', transition: 'all 0.2s ease',
-            background: mode === 'space' ? 'rgba(0, 217, 255, 0.15)' : 'transparent',
-            color: mode === 'space' ? '#00d9ff' : '#64748b',
-          }}
-        >SPACE</button>
-        <button
+        <span style={{
+          fontSize: '10px', fontFamily: 'monospace', fontWeight: '600', letterSpacing: '1px',
+          color: !isAviation ? '#a78bfa' : '#64748b', transition: 'color 0.3s ease',
+        }}>SPACECRAFT</span>
+        <div
           onClick={() => {
-            setMode('aviation');
-            setSelectedSatellite(null);
-            setSelectedLaunch(null);
-            setSelectedConflict(null);
-            setFilterPanelOpen(false);
+            if (isAviation) {
+              setMode('space');
+              setSelectedAircraft(null);
+            } else {
+              setMode('aviation');
+              setSelectedSatellite(null);
+              setSelectedLaunch(null);
+              setSelectedConflict(null);
+              setFilterPanelOpen(false);
+            }
           }}
           style={{
-            padding: '8px 16px', fontSize: '11px', fontFamily: 'monospace', fontWeight: '600',
-            letterSpacing: '1.5px', border: 'none', cursor: 'pointer', transition: 'all 0.2s ease',
-            borderLeft: '1px solid rgba(100, 116, 139, 0.2)',
-            background: mode === 'aviation' ? 'rgba(255, 159, 67, 0.15)' : 'transparent',
-            color: mode === 'aviation' ? '#ff9f43' : '#64748b',
+            width: '44px', height: '22px', borderRadius: '11px', cursor: 'pointer',
+            background: isAviation ? 'rgba(56, 163, 224, 0.5)' : 'rgba(124, 58, 237, 0.35)',
+            border: `1px solid ${isAviation ? 'rgba(56, 163, 224, 0.6)' : 'rgba(124, 58, 237, 0.5)'}`,
+            position: 'relative', transition: 'all 0.3s ease',
           }}
-        >AVIATION</button>
+        >
+          <div style={{
+            width: '16px', height: '16px', borderRadius: '50%',
+            background: isAviation ? '#38a3e0' : '#7c3aed',
+            position: 'absolute', top: '2px',
+            left: isAviation ? '24px' : '2px',
+            transition: 'left 0.3s ease, background 0.3s ease',
+            boxShadow: `0 0 6px ${isAviation ? '#38a3e0' : '#7c3aed'}80`,
+          }} />
+        </div>
+        <span style={{
+          fontSize: '10px', fontFamily: 'monospace', fontWeight: '600', letterSpacing: '1px',
+          color: isAviation ? '#38a3e0' : '#64748b', transition: 'color 0.3s ease',
+        }}>AVIATION</span>
       </div>
 
       {/* Filter Button (Space mode only) */}
@@ -1572,103 +1675,199 @@ export default function MapContainer() {
         </div>
       )}
 
-      {/* Aircraft Details Sidebar */}
+      {/* Aircraft Details Sidebar — sky/aviation theme */}
       {selectedAircraft && (
         <div style={{
           position: 'absolute', right: 0, top: 0, bottom: 0, width: '420px',
-          background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 14, 39, 0.98) 100%)',
-          borderLeft: '1px solid rgba(255, 159, 67, 0.3)',
+          background: 'linear-gradient(180deg, rgba(15, 30, 55, 0.97) 0%, rgba(10, 22, 45, 0.97) 100%)',
+          borderLeft: '1px solid rgba(56, 163, 224, 0.25)',
           boxShadow: '-8px 0 32px rgba(0, 0, 0, 0.5)',
           zIndex: 100, overflow: 'auto', fontFamily: 'Geist Sans, system-ui, sans-serif',
         }}>
           <button onClick={() => setSelectedAircraft(null)} style={{
             position: 'absolute', top: '16px', right: '16px',
-            background: 'rgba(255, 159, 67, 0.1)', border: '1px solid rgba(255, 159, 67, 0.3)', color: '#ff9f43',
+            background: 'rgba(56, 163, 224, 0.1)', border: '1px solid rgba(56, 163, 224, 0.25)', color: '#38a3e0',
             width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', fontSize: '18px',
             display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease', zIndex: 101,
           }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 159, 67, 0.2)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255, 159, 67, 0.1)'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(56, 163, 224, 0.2)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(56, 163, 224, 0.1)'; }}
           >&#10005;</button>
 
-          <div style={{ padding: '32px 24px 24px', borderBottom: '1px solid rgba(255, 159, 67, 0.2)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-              <div style={{
-                width: '12px', height: '12px', borderRadius: '50%',
-                background: getAircraftAltitudeColor(selectedAircraft.altitude),
-                boxShadow: `0 0 8px ${getAircraftAltitudeColor(selectedAircraft.altitude)}`,
-              }} />
+          {/* Header — airline, aircraft type, callsign */}
+          <div style={{ padding: '28px 24px 20px', borderBottom: '1px solid rgba(56, 163, 224, 0.15)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" style={{ color: '#38a3e0' }}>
+                <path d="M12 2 L12 9 L19 14 L19 16 L12 13 L12 19 L15 21 L15 22.5 L12 21 L9 22.5 L9 21 L12 19 L12 13 L5 16 L5 14 L12 9 Z" fill="currentColor" opacity="0.8"/>
+              </svg>
               <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: '600', fontFamily: 'monospace' }}>
-                ICAO {selectedAircraft.icao24.toUpperCase()}
+                FLIGHT TRACKING
               </span>
             </div>
-            <h2 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '700', color: '#e2e8f0', letterSpacing: '0.5px' }}>
-              {selectedAircraft.callsign || 'UNKNOWN'}
+            {/* Airline name — large primary identifier */}
+            <h2 style={{ margin: '0 0 4px 0', fontSize: '20px', fontWeight: '700', color: '#e2e8f0', letterSpacing: '0.5px' }}>
+              {getAirlineFromCallsign(selectedAircraft.callsign)?.name || selectedAircraft.originCountry + ' Aircraft'}
             </h2>
-            <span style={{ padding: '2px 8px', fontSize: '10px', color: '#ff9f43', border: '1px solid rgba(255, 159, 67, 0.4)', borderRadius: '3px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600', fontFamily: 'monospace' }}>
-              {selectedAircraft.originCountry}
-            </span>
+            {/* Aircraft category */}
+            <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#7dd3fc', fontFamily: 'monospace', fontWeight: '500' }}>
+              {AIRCRAFT_CATEGORY_LABELS[selectedAircraft.category] || 'Unknown Type'}
+            </p>
+            {/* Callsign + ICAO24 + country badges */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <span style={{ padding: '4px 10px', fontSize: '11px', color: '#e2e8f0', background: 'rgba(56, 163, 224, 0.12)', border: '1px solid rgba(56, 163, 224, 0.3)', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '700', fontFamily: 'monospace' }}>
+                {selectedAircraft.callsign?.trim() || 'N/A'}
+              </span>
+              <span style={{ padding: '3px 8px', fontSize: '10px', color: '#7dd3fc', background: 'rgba(125, 211, 252, 0.08)', border: '1px solid rgba(125, 211, 252, 0.2)', borderRadius: '3px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600', fontFamily: 'monospace' }}>
+                {selectedAircraft.icao24.toUpperCase()}
+              </span>
+              <span style={{ padding: '3px 8px', fontSize: '10px', color: '#94a3b8', background: 'rgba(148, 163, 184, 0.08)', border: '1px solid rgba(148, 163, 184, 0.15)', borderRadius: '3px', letterSpacing: '0.5px', fontWeight: '600', fontFamily: 'monospace' }}>
+                {selectedAircraft.originCountry}
+              </span>
+            </div>
           </div>
 
-          <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255, 159, 67, 0.2)' }}>
-            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Current Position</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          {/* Position */}
+          <div style={{ padding: '18px 24px', borderBottom: '1px solid rgba(56, 163, 224, 0.12)' }}>
+            <p style={{ margin: '0 0 10px 0', fontSize: '10px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '600', fontFamily: 'monospace' }}>Position</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div>
-                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LATITUDE</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>{selectedAircraft.lat.toFixed(4)}&deg;</p>
+                <p style={{ margin: '0 0 3px 0', fontSize: '9px', color: '#475569', fontFamily: 'monospace' }}>LAT</p>
+                <p style={{ margin: '0', fontSize: '14px', color: '#e2e8f0', fontFamily: 'monospace', fontWeight: '600' }}>{selectedAircraft.lat.toFixed(4)}&deg;</p>
               </div>
               <div>
-                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LONGITUDE</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>{selectedAircraft.lng.toFixed(4)}&deg;</p>
+                <p style={{ margin: '0 0 3px 0', fontSize: '9px', color: '#475569', fontFamily: 'monospace' }}>LNG</p>
+                <p style={{ margin: '0', fontSize: '14px', color: '#e2e8f0', fontFamily: 'monospace', fontWeight: '600' }}>{selectedAircraft.lng.toFixed(4)}&deg;</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Altitude strip — visual indicator */}
+          <div style={{ padding: '18px 24px', borderBottom: '1px solid rgba(56, 163, 224, 0.12)' }}>
+            <p style={{ margin: '0 0 10px 0', fontSize: '10px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '600', fontFamily: 'monospace' }}>Altitude</p>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', marginBottom: '8px' }}>
+              <span style={{ fontSize: '28px', fontWeight: '700', color: getAircraftAltitudeColor(selectedAircraft.altitude), fontFamily: 'monospace' }}>
+                {selectedAircraft.altitude != null ? Math.round(selectedAircraft.altitude * 3.281).toLocaleString() : '---'}
+              </span>
+              <span style={{ fontSize: '12px', color: '#64748b', fontFamily: 'monospace' }}>ft</span>
+            </div>
+            {selectedAircraft.altitude != null && (
+              <div style={{ width: '100%', height: '4px', borderRadius: '2px', background: 'rgba(56, 163, 224, 0.1)', overflow: 'hidden' }}>
+                <div style={{
+                  width: `${Math.min((selectedAircraft.altitude * 3.281) / 450, 100)}%`,
+                  height: '100%', borderRadius: '2px',
+                  background: `linear-gradient(90deg, #4ade80, #38bdf8, #818cf8)`,
+                  transition: 'width 0.5s ease',
+                }} />
+              </div>
+            )}
+            {selectedAircraft.geoAltitude != null && (
+              <p style={{ margin: '8px 0 0 0', fontSize: '11px', color: '#475569', fontFamily: 'monospace' }}>
+                GEO: {Math.round(selectedAircraft.geoAltitude * 3.281).toLocaleString()} ft
+              </p>
+            )}
+          </div>
+
+          {/* Flight parameters */}
+          <div style={{ padding: '18px 24px', borderBottom: '1px solid rgba(56, 163, 224, 0.12)' }}>
+            <p style={{ margin: '0 0 10px 0', fontSize: '10px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '600', fontFamily: 'monospace' }}>Flight Parameters</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div>
+                <p style={{ margin: '0 0 3px 0', fontSize: '9px', color: '#475569', fontFamily: 'monospace' }}>GROUND SPEED</p>
+                <p style={{ margin: '0', fontSize: '16px', color: '#e2e8f0', fontFamily: 'monospace', fontWeight: '600' }}>
+                  {selectedAircraft.velocity != null ? `${Math.round(selectedAircraft.velocity * 1.944)}` : '---'}
+                  <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '3px' }}>kts</span>
+                </p>
+                {selectedAircraft.velocity != null && (
+                  <p style={{ margin: '2px 0 0 0', fontSize: '10px', color: '#475569', fontFamily: 'monospace' }}>
+                    {Math.round(selectedAircraft.velocity * 3.6)} km/h
+                  </p>
+                )}
               </div>
               <div>
-                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>ALTITUDE</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>
-                  {selectedAircraft.altitude != null ? `${Math.round(selectedAircraft.altitude * 3.281).toLocaleString()} ft` : 'N/A'}
+                <p style={{ margin: '0 0 3px 0', fontSize: '9px', color: '#475569', fontFamily: 'monospace' }}>HEADING</p>
+                <p style={{ margin: '0', fontSize: '16px', color: '#e2e8f0', fontFamily: 'monospace', fontWeight: '600' }}>
+                  {selectedAircraft.heading != null ? `${Math.round(selectedAircraft.heading)}` : '---'}
+                  <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '2px' }}>&deg;</span>
+                </p>
+                {selectedAircraft.heading != null && (
+                  <p style={{ margin: '2px 0 0 0', fontSize: '10px', color: '#475569', fontFamily: 'monospace' }}>
+                    {['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'][Math.round(selectedAircraft.heading / 22.5) % 16]}
+                  </p>
+                )}
+              </div>
+              <div>
+                <p style={{ margin: '0 0 3px 0', fontSize: '9px', color: '#475569', fontFamily: 'monospace' }}>V/S</p>
+                <p style={{ margin: '0', fontSize: '16px', color: selectedAircraft.verticalRate != null ? (selectedAircraft.verticalRate > 0.5 ? '#4ade80' : selectedAircraft.verticalRate < -0.5 ? '#f87171' : '#e2e8f0') : '#64748b', fontFamily: 'monospace', fontWeight: '600' }}>
+                  {selectedAircraft.verticalRate != null ? `${selectedAircraft.verticalRate > 0 ? '+' : ''}${Math.round(selectedAircraft.verticalRate * 196.85)}` : '---'}
+                  <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '3px' }}>fpm</span>
+                </p>
+                {selectedAircraft.verticalRate != null && (
+                  <p style={{ margin: '2px 0 0 0', fontSize: '10px', color: '#475569', fontFamily: 'monospace' }}>
+                    {selectedAircraft.verticalRate > 0.5 ? 'CLIMBING' : selectedAircraft.verticalRate < -0.5 ? 'DESCENDING' : 'LEVEL'}
+                  </p>
+                )}
+              </div>
+              <div>
+                <p style={{ margin: '0 0 3px 0', fontSize: '9px', color: '#475569', fontFamily: 'monospace' }}>SQUAWK</p>
+                <p style={{ margin: '0', fontSize: '16px', color: selectedAircraft.squawk === '7700' ? '#f87171' : selectedAircraft.squawk === '7600' ? '#fbbf24' : selectedAircraft.squawk === '7500' ? '#f87171' : '#e2e8f0', fontFamily: 'monospace', fontWeight: '600' }}>
+                  {selectedAircraft.squawk || '----'}
+                </p>
+                {(selectedAircraft.squawk === '7700' || selectedAircraft.squawk === '7600' || selectedAircraft.squawk === '7500') && (
+                  <p style={{ margin: '2px 0 0 0', fontSize: '9px', color: '#f87171', fontFamily: 'monospace', fontWeight: '600' }}>
+                    {selectedAircraft.squawk === '7700' ? 'EMERGENCY' : selectedAircraft.squawk === '7600' ? 'RADIO FAIL' : 'HIJACK'}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Derived performance data */}
+          <div style={{ padding: '18px 24px', borderBottom: '1px solid rgba(56, 163, 224, 0.12)' }}>
+            <p style={{ margin: '0 0 10px 0', fontSize: '10px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '600', fontFamily: 'monospace' }}>Performance</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div>
+                <p style={{ margin: '0 0 3px 0', fontSize: '9px', color: '#475569', fontFamily: 'monospace' }}>FLIGHT LEVEL</p>
+                <p style={{ margin: '0', fontSize: '16px', color: '#e2e8f0', fontFamily: 'monospace', fontWeight: '600' }}>
+                  {selectedAircraft.altitude != null ? `FL${Math.round(selectedAircraft.altitude * 3.281 / 100).toString().padStart(3, '0')}` : '---'}
                 </p>
               </div>
               <div>
-                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>GEO ALTITUDE</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>
-                  {selectedAircraft.geoAltitude != null ? `${Math.round(selectedAircraft.geoAltitude * 3.281).toLocaleString()} ft` : 'N/A'}
+                <p style={{ margin: '0 0 3px 0', fontSize: '9px', color: '#475569', fontFamily: 'monospace' }}>MACH</p>
+                <p style={{ margin: '0', fontSize: '16px', color: '#e2e8f0', fontFamily: 'monospace', fontWeight: '600' }}>
+                  {selectedAircraft.velocity != null && selectedAircraft.altitude != null
+                    ? (() => {
+                        const tempK = 288.15 - 0.0065 * Math.min(selectedAircraft.altitude, 11000);
+                        const sos = Math.sqrt(1.4 * 287.05 * Math.max(tempK, 216.65));
+                        return `M ${(selectedAircraft.velocity / sos).toFixed(2)}`;
+                      })()
+                    : '---'}
+                </p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 3px 0', fontSize: '9px', color: '#475569', fontFamily: 'monospace' }}>TAS</p>
+                <p style={{ margin: '0', fontSize: '14px', color: '#94a3b8', fontFamily: 'monospace', fontWeight: '600' }}>
+                  {selectedAircraft.velocity != null && selectedAircraft.altitude != null
+                    ? (() => {
+                        const rho = 1.225 * Math.exp(-selectedAircraft.altitude / 8500);
+                        const tas = selectedAircraft.velocity * Math.sqrt(1.225 / Math.max(rho, 0.01));
+                        return `${Math.round(tas * 1.944)} kts`;
+                      })()
+                    : '---'}
+                </p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 3px 0', fontSize: '9px', color: '#475569', fontFamily: 'monospace' }}>CATEGORY</p>
+                <p style={{ margin: '0', fontSize: '14px', color: '#94a3b8', fontFamily: 'monospace', fontWeight: '600' }}>
+                  {selectedAircraft.category === 0 ? 'N/A' : selectedAircraft.category <= 3 ? ['','LIGHT','SMALL','LARGE'][selectedAircraft.category] : selectedAircraft.category <= 6 ? ['','','','','HI-PERF','HEAVY','HI-SPEED'][selectedAircraft.category] : `CAT-${selectedAircraft.category}`}
                 </p>
               </div>
             </div>
           </div>
 
-          <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255, 159, 67, 0.2)' }}>
-            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Flight Data</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div>
-                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>GROUND SPEED</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>
-                  {selectedAircraft.velocity != null ? `${Math.round(selectedAircraft.velocity * 1.944)} kts` : 'N/A'}
-                </p>
-              </div>
-              <div>
-                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>HEADING</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>
-                  {selectedAircraft.heading != null ? `${Math.round(selectedAircraft.heading)}\u00B0` : 'N/A'}
-                </p>
-              </div>
-              <div>
-                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>VERTICAL RATE</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>
-                  {selectedAircraft.verticalRate != null ? `${Math.round(selectedAircraft.verticalRate * 196.85)} ft/min` : 'N/A'}
-                </p>
-              </div>
-              <div>
-                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>SQUAWK</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#ff9f43', fontFamily: 'monospace', fontWeight: '600' }}>
-                  {selectedAircraft.squawk || 'N/A'}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ padding: '20px 24px' }}>
-            <p style={{ margin: '0', fontSize: '10px', color: '#475569', lineHeight: '1.5', fontStyle: 'italic', fontFamily: 'monospace' }}>
-              Live data via OpenSky Network. Positions update every 15 seconds.
+          {/* Footer */}
+          <div style={{ padding: '16px 24px' }}>
+            <p style={{ margin: '0', fontSize: '10px', color: '#334155', lineHeight: '1.5', fontFamily: 'monospace' }}>
+              Live via OpenSky Network &middot; Updates every 15s
             </p>
           </div>
         </div>
@@ -1701,13 +1900,13 @@ export default function MapContainer() {
           backdropFilter: 'blur(8px)',
           padding: '8px 14px',
           borderRadius: '4px',
-          border: `1px solid ${isAviation ? 'rgba(255, 159, 67, 0.15)' : 'rgba(0, 217, 255, 0.15)'}`,
+          border: `1px solid ${isAviation ? 'rgba(56, 163, 224, 0.15)' : 'rgba(0, 217, 255, 0.15)'}`,
           display: 'flex',
           gap: '16px',
         }}>
           {isAviation ? (
             <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
-              <span style={{ color: '#ff9f43', fontWeight: '600' }}>{aircraft.length}</span> AIRCRAFT
+              <span style={{ color: '#38a3e0', fontWeight: '600' }}>{aircraft.length}</span> AIRCRAFT
             </p>
           ) : (
             <>
