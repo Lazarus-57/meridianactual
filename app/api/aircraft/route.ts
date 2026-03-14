@@ -2,10 +2,48 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const maxDuration = 30;
 
-// In-memory cache (60s TTL — aircraft move fast but OpenSky updates every ~10s)
-let cachedData: { json: any; timestamp: number; cacheKey: string } | null = null;
 const CACHE_TTL_MS = 60 * 1000;
 const MAX_AIRCRAFT = 500;
+
+let cachedData: { json: any; timestamp: number; cacheKey: string } | null = null;
+
+// OAuth2 token cache
+let tokenCache: { token: string; expiresAt: number } | null = null;
+
+async function getAccessToken(): Promise<string | null> {
+  const clientId = process.env.OPENSKY_CLIENT_ID;
+  const clientSecret = process.env.OPENSKY_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return null;
+
+  // Reuse cached token if still valid (with 30s buffer)
+  if (tokenCache && Date.now() < tokenCache.expiresAt - 30000) {
+    return tokenCache.token;
+  }
+
+  try {
+    const res = await fetch(
+      'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'client_credentials',
+          client_id: clientId,
+          client_secret: clientSecret,
+        }),
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    tokenCache = {
+      token: data.access_token,
+      expiresAt: Date.now() + data.expires_in * 1000,
+    };
+    return tokenCache.token;
+  } catch {
+    return null;
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,34 +61,30 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-
     let url = 'https://opensky-network.org/api/states/all';
     if (lamin && lamax && lomin && lomax) {
       url += `?lamin=${lamin}&lamax=${lamax}&lomin=${lomin}&lomax=${lomax}`;
     }
 
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'Meridian-Actual-Tracker' },
-      signal: controller.signal,
-    });
+    const headers: Record<string, string> = { 'User-Agent': 'Meridian-Actual-Tracker' };
+    const token = await getAccessToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    const response = await fetch(url, { headers, signal: controller.signal });
     clearTimeout(timeout);
 
-    if (!response.ok) {
-      throw new Error(`OpenSky API returned ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`OpenSky returned ${response.status}`);
 
     const data = await response.json();
     const states: any[][] = data.states || [];
 
     const aircraft = states
-      .filter((s: any[]) => {
-        if (s[8] === true) return false;          // on_ground
-        if (s[5] == null || s[6] == null) return false; // null lng/lat
-        return true;
-      })
+      .filter((s: any[]) => s[8] !== true && s[5] != null && s[6] != null)
       .slice(0, MAX_AIRCRAFT)
       .map((s: any[]) => ({
         icao24: s[0],
@@ -69,14 +103,13 @@ export async function GET(request: NextRequest) {
       }));
 
     const result = { aircraft, time: data.time };
-
     cachedData = { json: result, timestamp: Date.now(), cacheKey };
 
     return NextResponse.json(result, {
       headers: { 'Cache-Control': 'public, s-maxage=15, stale-while-revalidate=10' },
     });
   } catch (error) {
-    console.error('Error fetching aircraft from OpenSky:', error);
+    console.error('OpenSky fetch error:', error);
 
     if (cachedData) {
       return NextResponse.json(cachedData.json, {
@@ -84,9 +117,6 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    return NextResponse.json(
-      { error: 'Failed to fetch aircraft data', aircraft: [] },
-      { status: 502 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch aircraft data', aircraft: [] }, { status: 502 });
   }
 }

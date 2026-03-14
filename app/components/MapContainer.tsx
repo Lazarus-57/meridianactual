@@ -500,7 +500,7 @@ function splitPathAtBoundary(points: { lat: number; lng: number; alt: number }[]
 async function fetchUpcomingLaunches(): Promise<Launch[]> {
   try {
     const response = await fetch('/api/launches');
-    if (!response.ok) throw new Error('Failed to fetch launch data');
+    if (!response.ok) return [];
 
     const data = await response.json();
     if (!data.results || !Array.isArray(data.results)) return [];
@@ -521,8 +521,7 @@ async function fetchUpcomingLaunches(): Promise<Launch[]> {
         orbit: r.mission?.orbit?.name || 'Unknown Orbit',
         imageUrl: r.image || null,
       }));
-  } catch (error) {
-    console.error('Error fetching launch data:', error);
+  } catch {
     return [];
   }
 }
@@ -751,11 +750,10 @@ function createConflictMarkerHtml(type: ConflictLocation['type']): string {
 async function fetchAircraftPositions(): Promise<Aircraft[]> {
   try {
     const response = await fetch('/api/aircraft?lamin=6&lamax=36&lomin=68&lomax=98');
-    if (!response.ok) throw new Error('Failed to fetch aircraft data');
+    if (!response.ok) return [];
     const data = await response.json();
     return data.aircraft || [];
-  } catch (error) {
-    console.error('Error fetching aircraft data:', error);
+  } catch {
     return [];
   }
 }
