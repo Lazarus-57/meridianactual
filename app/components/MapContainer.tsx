@@ -824,6 +824,34 @@ const AIRLINE_LOOKUP: Record<string, { name: string; short: string }> = {
   UPS: { name: 'UPS Airlines', short: 'UPS' },
   GTI: { name: 'Atlas Air', short: 'Atlas Air' },
   IAF: { name: 'Indian Air Force', short: 'Indian AF' },
+  EVA: { name: 'EVA Air', short: 'EVA Air' },
+  CAL: { name: 'China Airlines', short: 'China Airlines' },
+  AZQ: { name: 'Silk Way Airlines', short: 'Silk Way' },
+  ABD: { name: 'Air Arabia Abu Dhabi', short: 'Air Arabia' },
+  ABY: { name: 'Air Arabia', short: 'Air Arabia' },
+  RJA: { name: 'Royal Jordanian', short: 'Royal Jordanian' },
+  PIA: { name: 'Pakistan Intl Airlines', short: 'PIA' },
+  BNG: { name: 'Biman Bangladesh', short: 'Biman' },
+  UBD: { name: 'US-Bangla Airlines', short: 'US-Bangla' },
+  NPT: { name: 'Nepal Airlines', short: 'Nepal Airlines' },
+  MXD: { name: 'Malindo Air', short: 'Malindo' },
+  AXM: { name: 'AirAsia', short: 'AirAsia' },
+  AIQ: { name: 'AirAsia India', short: 'AirAsia India' },
+  JAI: { name: 'Jet Airways', short: 'Jet Airways' },
+  LNI: { name: 'Lion Air', short: 'Lion Air' },
+  WZZ: { name: 'Wizz Air', short: 'Wizz Air' },
+  RYR: { name: 'Ryanair', short: 'Ryanair' },
+  EZY: { name: 'easyJet', short: 'easyJet' },
+  VIR: { name: 'Virgin Atlantic', short: 'Virgin Atlantic' },
+  ANE: { name: 'Air Nostrum', short: 'Air Nostrum' },
+  CLX: { name: 'Cargolux', short: 'Cargolux' },
+  KZR: { name: 'Air Astana', short: 'Air Astana' },
+  AHY: { name: 'Azerbaijan Airlines', short: 'AZAL' },
+  AFL: { name: 'Aeroflot', short: 'Aeroflot' },
+  TAP: { name: 'TAP Air Portugal', short: 'TAP' },
+  IBE: { name: 'Iberia', short: 'Iberia' },
+  AZA: { name: 'ITA Airways', short: 'ITA' },
+  TSO: { name: 'Transavia', short: 'Transavia' },
 };
 
 const AIRCRAFT_CATEGORY_LABELS: Record<number, string> = {
@@ -1017,26 +1045,16 @@ export default function MapContainer() {
 
   const isAviation = mode === 'aviation';
 
-  // Build combined marker data array (memoized)
+  // Build combined marker data array (memoized — NO selected labels here to avoid rebuild on click)
   const htmlElements: MarkerData[] = useMemo(() => isAviation
-    ? [
-        ...aircraft.map(ac => ({
+    ? aircraft.map(ac => ({
           kind: 'aircraft' as const,
           lat: ac.lat,
           lng: ac.lng,
           altitude: 0.005 + (ac.altitude != null ? ac.altitude / 6371000 * 5 : 0.01),
           data: ac,
           html: createAircraftMarkerHtml(ac.heading, ac.altitude),
-        })),
-        ...(selectedAircraft ? [{
-          kind: 'aircraft' as const,
-          lat: selectedAircraft.lat,
-          lng: selectedAircraft.lng,
-          altitude: 0.02,
-          data: selectedAircraft,
-          html: `<div style="font:700 11px monospace;color:#7dd3fc;text-shadow:0 0 8px #000,0 0 16px #000;pointer-events:none;white-space:nowrap;transform:translateY(-24px)">${selectedAircraft.callsign || selectedAircraft.icao24}</div>`,
-        }] : []),
-      ]
+        }))
     : [
         ...filteredSatellites.map(sat => ({
           kind: 'satellite' as const,
@@ -1062,15 +1080,38 @@ export default function MapContainer() {
           data: loc,
           html: createConflictMarkerHtml(loc.type),
         })),
-        ...(selectedSatellite ? [{
-          kind: 'satellite' as const,
-          lat: selectedSatellite.lat,
-          lng: selectedSatellite.lng,
-          altitude: Math.min(selectedSatellite.altitude / 6371 * 0.3, 0.5) + 0.01,
-          data: selectedSatellite,
-          html: `<div style="font:700 11px monospace;color:${getSatelliteColor(selectedSatellite.type)};text-shadow:0 0 8px #000,0 0 16px #000;pointer-events:none;white-space:nowrap;transform:translateY(-24px)">${selectedSatellite.name}</div>`,
-        }] : []),
-      ], [isAviation, aircraft, selectedAircraft, filteredSatellites, filteredLaunches, selectedSatellite]);
+      ], [isAviation, aircraft, filteredSatellites, filteredLaunches]);
+
+  // Selected item labels — separate array so clicking doesn't rebuild all markers
+  const selectedLabel: MarkerData[] = useMemo(() => {
+    if (isAviation && selectedAircraft) {
+      return [{
+        kind: 'aircraft' as const,
+        lat: selectedAircraft.lat, lng: selectedAircraft.lng, altitude: 0.02,
+        data: selectedAircraft,
+        html: `<div style="font:700 11px monospace;color:#7dd3fc;text-shadow:0 0 8px #000,0 0 16px #000;pointer-events:none;white-space:nowrap;transform:translateY(-24px)">${selectedAircraft.callsign || selectedAircraft.icao24}</div>`,
+      }];
+    }
+    if (!isAviation && selectedSatellite) {
+      return [{
+        kind: 'satellite' as const,
+        lat: selectedSatellite.lat, lng: selectedSatellite.lng,
+        altitude: Math.min(selectedSatellite.altitude / 6371 * 0.3, 0.5) + 0.01,
+        data: selectedSatellite,
+        html: `<div style="font:700 11px monospace;color:${getSatelliteColor(selectedSatellite.type)};text-shadow:0 0 8px #000,0 0 16px #000;pointer-events:none;white-space:nowrap;transform:translateY(-24px)">${selectedSatellite.name}</div>`,
+      }];
+    }
+    return [];
+  }, [isAviation, selectedAircraft, selectedSatellite]);
+
+  const allMarkers = useMemo(() => [...htmlElements, ...selectedLabel], [htmlElements, selectedLabel]);
+
+  // Memoize tile engine to prevent Globe from re-fetching tiles on every render
+  const tileEngineUrl = useCallback((x: number, y: number, level: number) =>
+    isAviation
+      ? `https://basemaps.cartocdn.com/rastertiles/voyager/${level}/${x}/${y}@2x.png`
+      : `https://basemaps.cartocdn.com/dark_all/${level}/${x}/${y}@2x.png`
+  , [isAviation]);
 
   const handleMarkerClick = useCallback((d: any) => {
     if (d.kind === 'satellite') {
@@ -1101,6 +1142,19 @@ export default function MapContainer() {
     }
   }, []);
 
+  // Memoize htmlElement factory so Globe doesn't recreate DOM unnecessarily
+  const htmlElementFactory = useCallback((d: any) => {
+    const el = document.createElement('div');
+    el.innerHTML = d.html;
+    el.style.pointerEvents = 'auto';
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleMarkerClick(d);
+    });
+    return el;
+  }, [handleMarkerClick]);
+
   const closeSidebar = useCallback(() => {
     setSelectedSatellite(null);
     setSelectedLaunch(null);
@@ -1119,31 +1173,17 @@ export default function MapContainer() {
           width={globeSize.width}
           height={globeSize.height}
           globeImageUrl="https://unpkg.com/three-globe/example/img/earth-night.jpg"
-          globeTileEngineUrl={(x: number, y: number, level: number) =>
-            isAviation
-              ? `https://basemaps.cartocdn.com/rastertiles/voyager/${level}/${x}/${y}@2x.png`
-              : `https://basemaps.cartocdn.com/dark_all/${level}/${x}/${y}@2x.png`
-          }
+          globeTileEngineUrl={tileEngineUrl}
           backgroundImageUrl="https://unpkg.com/three-globe/example/img/night-sky.png"
           backgroundColor="rgba(0,0,0,0)"
           atmosphereColor={isAviation ? '#7dd3fc' : '#00d9ff'}
           atmosphereAltitude={isAviation ? 0.2 : 0.25}
 
-          htmlElementsData={htmlElements}
+          htmlElementsData={allMarkers}
           htmlLat={(d: any) => d.lat}
           htmlLng={(d: any) => d.lng}
           htmlAltitude={(d: any) => d.altitude}
-          htmlElement={(d: any) => {
-            const el = document.createElement('div');
-            el.innerHTML = d.html;
-            el.style.pointerEvents = 'auto';
-            el.style.cursor = 'pointer';
-            el.addEventListener('click', (e) => {
-              e.stopPropagation();
-              handleMarkerClick(d);
-            });
-            return el;
-          }}
+          htmlElement={htmlElementFactory}
 
           polygonsData={isAviation ? [] : CONFLICT_ZONE_GEOJSON}
           polygonCapColor={() => 'rgba(200, 50, 50, 0.08)'}
@@ -1706,12 +1746,17 @@ export default function MapContainer() {
             </div>
             {/* Airline name — large primary identifier */}
             <h2 style={{ margin: '0 0 4px 0', fontSize: '20px', fontWeight: '700', color: '#e2e8f0', letterSpacing: '0.5px' }}>
-              {getAirlineFromCallsign(selectedAircraft.callsign)?.name || selectedAircraft.originCountry + ' Aircraft'}
+              {getAirlineFromCallsign(selectedAircraft.callsign)?.name || (selectedAircraft.callsign?.trim() || selectedAircraft.originCountry)}
             </h2>
-            {/* Aircraft category */}
-            <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#7dd3fc', fontFamily: 'monospace', fontWeight: '500' }}>
-              {AIRCRAFT_CATEGORY_LABELS[selectedAircraft.category] || 'Unknown Type'}
-            </p>
+            {/* Aircraft category — only show when actually reported */}
+            {selectedAircraft.category > 0 && (
+              <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#7dd3fc', fontFamily: 'monospace', fontWeight: '500' }}>
+                {AIRCRAFT_CATEGORY_LABELS[selectedAircraft.category] || `Category ${selectedAircraft.category}`}
+              </p>
+            )}
+            {selectedAircraft.category === 0 && (
+              <div style={{ height: '12px' }} />
+            )}
             {/* Callsign + ICAO24 + country badges */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <span style={{ padding: '4px 10px', fontSize: '11px', color: '#e2e8f0', background: 'rgba(56, 163, 224, 0.12)', border: '1px solid rgba(56, 163, 224, 0.3)', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '700', fontFamily: 'monospace' }}>
