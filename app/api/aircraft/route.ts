@@ -5,111 +5,81 @@ export const maxDuration = 30;
 const CACHE_TTL_MS = 60 * 1000;
 const MAX_AIRCRAFT = 500;
 
-let cachedData: { json: any; timestamp: number; cacheKey: string } | null = null;
+let cachedData: { json: any; timestamp: number } | null = null;
 
-// OAuth2 token cache
-let tokenCache: { token: string; expiresAt: number } | null = null;
+// India bounding box for post-fetch filtering
+const INDIA_BOUNDS = { lamin: 6, lamax: 36, lomin: 68, lomax: 98 };
 
-async function getAccessToken(): Promise<string | null> {
-  const clientId = process.env.OPENSKY_CLIENT_ID;
-  const clientSecret = process.env.OPENSKY_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return null;
+// adsb.lol category string → OpenSky numeric category
+const CAT_MAP: Record<string, number> = {
+  A1: 1, A2: 2, A3: 3, A4: 4, A5: 5, A6: 6, A7: 7,
+  B1: 8, B2: 9, B3: 10, B4: 11, B6: 12, B7: 13,
+  C1: 14, C2: 15,
+};
 
-  // Reuse cached token if still valid (with 30s buffer)
-  if (tokenCache && Date.now() < tokenCache.expiresAt - 30000) {
-    return tokenCache.token;
-  }
-
+export async function GET(_request: NextRequest) {
   try {
-    const res = await fetch(
-      'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'client_credentials',
-          client_id: clientId,
-          client_secret: clientSecret,
-        }),
-      }
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    tokenCache = {
-      token: data.access_token,
-      expiresAt: Date.now() + data.expires_in * 1000,
-    };
-    return tokenCache.token;
-  } catch {
-    return null;
-  }
-}
-
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const lamin = searchParams.get('lamin');
-    const lamax = searchParams.get('lamax');
-    const lomin = searchParams.get('lomin');
-    const lomax = searchParams.get('lomax');
-
-    const cacheKey = `${lamin}-${lamax}-${lomin}-${lomax}`;
-
-    if (cachedData && cachedData.cacheKey === cacheKey && Date.now() - cachedData.timestamp < CACHE_TTL_MS) {
+    if (cachedData && Date.now() - cachedData.timestamp < CACHE_TTL_MS) {
       return NextResponse.json(cachedData.json, {
         headers: { 'Cache-Control': 'public, s-maxage=15, stale-while-revalidate=10' },
       });
     }
 
-    let url = 'https://opensky-network.org/api/states/all';
-    if (lamin && lamax && lomin && lomax) {
-      url += `?lamin=${lamin}&lamax=${lamax}&lomin=${lomin}&lomax=${lomax}`;
-    }
-
-    const headers: Record<string, string> = { 'User-Agent': 'Meridian-Actual-Tracker' };
-    const token = await getAccessToken();
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), 20000);
 
-    const response = await fetch(url, { headers, signal: controller.signal });
+    // Center of India bounding box, 1400nm radius covers all of it
+    const response = await fetch('https://api.adsb.lol/v2/lat/21/lon/83/dist/1400', {
+      headers: { 'User-Agent': 'Meridian-Actual-Tracker' },
+      signal: controller.signal,
+    });
+
     clearTimeout(timeout);
-
-    if (!response.ok) throw new Error(`OpenSky returned ${response.status}`);
+    if (!response.ok) throw new Error(`adsb.lol returned ${response.status}`);
 
     const data = await response.json();
-    const states: any[][] = data.states || [];
+    const raw: any[] = data.ac || [];
 
-    const aircraft = states
-      .filter((s: any[]) => s[8] !== true && s[5] != null && s[6] != null)
+    const aircraft = raw
+      .filter((ac) => {
+        if (ac.alt_baro == null || ac.lat == null || ac.lon == null) return false;
+        if (ac.alt_baro === 'ground') return false;
+        // Filter to India bounding box
+        if (ac.lat < INDIA_BOUNDS.lamin || ac.lat > INDIA_BOUNDS.lamax) return false;
+        if (ac.lon < INDIA_BOUNDS.lomin || ac.lon > INDIA_BOUNDS.lomax) return false;
+        return true;
+      })
       .slice(0, MAX_AIRCRAFT)
-      .map((s: any[]) => ({
-        icao24: s[0],
-        callsign: (s[1] || '').trim(),
-        originCountry: s[2],
-        lat: s[6],
-        lng: s[5],
-        altitude: s[7],
-        velocity: s[9],
-        heading: s[10],
-        verticalRate: s[11],
-        onGround: s[8],
-        geoAltitude: s[13],
-        squawk: s[14],
-        category: s[17] ?? 0,
+      .map((ac) => ({
+        icao24: ac.hex,
+        callsign: (ac.flight || '').trim(),
+        originCountry: ac.r ? ac.r.split('-')[0] : '',
+        lat: ac.lat,
+        lng: ac.lon,
+        // Convert feet → meters to keep frontend interface compatible
+        altitude: typeof ac.alt_baro === 'number' ? ac.alt_baro / 3.281 : null,
+        // Convert knots → m/s
+        velocity: ac.gs != null ? ac.gs / 1.944 : null,
+        heading: ac.track ?? ac.true_heading ?? null,
+        // Convert ft/min → m/s
+        verticalRate: ac.baro_rate != null ? ac.baro_rate / 196.85 : null,
+        onGround: false,
+        geoAltitude: null,
+        squawk: ac.squawk || null,
+        category: CAT_MAP[ac.category] ?? 0,
+        // Bonus fields from adsb.lol
+        registration: ac.r || null,
+        aircraftType: ac.t || null,
       }));
 
-    const result = { aircraft, time: data.time };
-    cachedData = { json: result, timestamp: Date.now(), cacheKey };
+    const result = { aircraft, time: Math.floor(Date.now() / 1000) };
+    cachedData = { json: result, timestamp: Date.now() };
 
     return NextResponse.json(result, {
       headers: { 'Cache-Control': 'public, s-maxage=15, stale-while-revalidate=10' },
     });
   } catch (error) {
-    console.error('OpenSky fetch error:', error);
+    console.error('adsb.lol fetch error:', error);
 
     if (cachedData) {
       return NextResponse.json(cachedData.json, {

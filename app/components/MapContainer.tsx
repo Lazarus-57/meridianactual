@@ -65,6 +65,8 @@ interface Aircraft {
   geoAltitude: number | null;
   squawk: string | null;
   category: number;
+  registration: string | null;
+  aircraftType: string | null;
 }
 
 interface MarkerData {
@@ -873,6 +875,40 @@ const AIRCRAFT_CATEGORY_LABELS: Record<number, string> = {
   18: 'Cluster Obstacle',
   19: 'Line Obstacle',
 };
+
+const AIRCRAFT_TYPE_LOOKUP: Record<string, string> = {
+  A318: 'Airbus A318', A319: 'Airbus A319', A320: 'Airbus A320', A321: 'Airbus A321',
+  A20N: 'Airbus A320neo', A21N: 'Airbus A321neo', A19N: 'Airbus A319neo',
+  A332: 'Airbus A330-200', A333: 'Airbus A330-300', A338: 'Airbus A330-800neo', A339: 'Airbus A330-900neo',
+  A342: 'Airbus A340-200', A343: 'Airbus A340-300', A345: 'Airbus A340-500', A346: 'Airbus A340-600',
+  A359: 'Airbus A350-900', A35K: 'Airbus A350-1000',
+  A380: 'Airbus A380', A388: 'Airbus A380-800',
+  B735: 'Boeing 737-500', B736: 'Boeing 737-600', B737: 'Boeing 737-700', B738: 'Boeing 737-800',
+  B739: 'Boeing 737-900', B38M: 'Boeing 737 MAX 8', B39M: 'Boeing 737 MAX 9',
+  B752: 'Boeing 757-200', B753: 'Boeing 757-300',
+  B762: 'Boeing 767-200', B763: 'Boeing 767-300', B764: 'Boeing 767-400',
+  B772: 'Boeing 777-200', B773: 'Boeing 777-300', B77L: 'Boeing 777-200LR', B77W: 'Boeing 777-300ER',
+  B779: 'Boeing 777X', B778: 'Boeing 777-8X',
+  B788: 'Boeing 787-8', B789: 'Boeing 787-9', B78X: 'Boeing 787-10',
+  B741: 'Boeing 747-100', B742: 'Boeing 747-200', B743: 'Boeing 747-300', B744: 'Boeing 747-400',
+  B748: 'Boeing 747-8', BELF: 'Boeing 747-400F (Beluga)',
+  AT72: 'ATR 72', AT76: 'ATR 72-600', AT75: 'ATR 72-500', AT42: 'ATR 42', AT45: 'ATR 42-500',
+  DH8A: 'Dash 8-100', DH8B: 'Dash 8-200', DH8C: 'Dash 8-300', DH8D: 'Dash 8-400',
+  CRJ2: 'Bombardier CRJ-200', CRJ7: 'Bombardier CRJ-700', CRJ9: 'Bombardier CRJ-900', CRJX: 'Bombardier CRJ-1000',
+  E170: 'Embraer E170', E175: 'Embraer E175', E190: 'Embraer E190', E195: 'Embraer E195',
+  E75L: 'Embraer E175-E2', E290: 'Embraer E190-E2', E295: 'Embraer E195-E2',
+  C172: 'Cessna 172', C182: 'Cessna 182', C208: 'Cessna 208 Caravan', C25A: 'Cessna Citation CJ2',
+  PC12: 'Pilatus PC-12', TBM9: 'TBM 900', SR22: 'Cirrus SR22',
+  IL76: 'Ilyushin Il-76', AN12: 'Antonov An-12', AN26: 'Antonov An-26',
+  C130: 'Lockheed C-130', C17: 'Boeing C-17', P8: 'Boeing P-8 Poseidon',
+  F16: 'F-16 Fighting Falcon', SU30: 'Sukhoi Su-30', MIG29: 'MiG-29',
+  H60: 'Sikorsky S-70', AS50: 'Airbus H125', EC35: 'Airbus H135',
+};
+
+function getAircraftTypeName(code: string | null): string | null {
+  if (!code) return null;
+  return AIRCRAFT_TYPE_LOOKUP[code.toUpperCase()] || code.toUpperCase();
+}
 
 function getAirlineFromCallsign(callsign: string | null): { name: string; short: string } | null {
   if (!callsign || callsign.length < 3) return null;
@@ -1743,23 +1779,37 @@ export default function MapContainer() {
               </span>
             </div>
             {/* Airline name — large primary identifier */}
-            <h2 style={{ margin: '0 0 4px 0', fontSize: '20px', fontWeight: '700', color: '#e2e8f0', letterSpacing: '0.5px' }}>
+            <h2 style={{ margin: '0 0 2px 0', fontSize: '20px', fontWeight: '700', color: '#e2e8f0', letterSpacing: '0.5px' }}>
               {getAirlineFromCallsign(selectedAircraft.callsign)?.name || (selectedAircraft.callsign?.trim() || selectedAircraft.originCountry)}
             </h2>
+            {/* Aircraft type — e.g. Boeing 737-800 */}
+            {selectedAircraft.aircraftType && (
+              <p style={{ margin: '0 0 4px 0', fontSize: '13px', color: '#7dd3fc', fontFamily: 'monospace', fontWeight: '500' }}>
+                {getAircraftTypeName(selectedAircraft.aircraftType)}
+              </p>
+            )}
             {/* Aircraft category — only show when actually reported */}
             {selectedAircraft.category > 0 && (
-              <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#7dd3fc', fontFamily: 'monospace', fontWeight: '500' }}>
+              <p style={{ margin: '0 0 12px 0', fontSize: '11px', color: '#64748b', fontFamily: 'monospace', fontWeight: '500' }}>
                 {AIRCRAFT_CATEGORY_LABELS[selectedAircraft.category] || `Category ${selectedAircraft.category}`}
               </p>
             )}
-            {selectedAircraft.category === 0 && (
+            {selectedAircraft.category === 0 && !selectedAircraft.aircraftType && (
               <div style={{ height: '12px' }} />
             )}
-            {/* Callsign + ICAO24 + country badges */}
+            {selectedAircraft.category === 0 && selectedAircraft.aircraftType && (
+              <div style={{ height: '12px' }} />
+            )}
+            {/* Callsign + registration + ICAO24 badges */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <span style={{ padding: '4px 10px', fontSize: '11px', color: '#e2e8f0', background: 'rgba(56, 163, 224, 0.12)', border: '1px solid rgba(56, 163, 224, 0.3)', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '700', fontFamily: 'monospace' }}>
                 {selectedAircraft.callsign?.trim() || 'N/A'}
               </span>
+              {selectedAircraft.registration && (
+                <span style={{ padding: '3px 8px', fontSize: '10px', color: '#4ade80', background: 'rgba(74, 222, 128, 0.08)', border: '1px solid rgba(74, 222, 128, 0.25)', borderRadius: '3px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600', fontFamily: 'monospace' }}>
+                  {selectedAircraft.registration}
+                </span>
+              )}
               <span style={{ padding: '3px 8px', fontSize: '10px', color: '#7dd3fc', background: 'rgba(125, 211, 252, 0.08)', border: '1px solid rgba(125, 211, 252, 0.2)', borderRadius: '3px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600', fontFamily: 'monospace' }}>
                 {selectedAircraft.icao24.toUpperCase()}
               </span>
