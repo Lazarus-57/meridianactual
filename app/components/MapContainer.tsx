@@ -1,9 +1,7 @@
 'use client';
 
-import { MapContainer as LeafletMap, TileLayer, ZoomControl, Marker, useMap } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-import { useEffect, useState } from 'react';
-import L from 'leaflet';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import Globe from 'react-globe.gl';
 import { twoline2satrec, propagate } from 'satellite.js';
 
 interface SatellitePosition {
@@ -40,6 +38,26 @@ interface Launch {
   padLng: number;
   orbit: string;
   imageUrl: string | null;
+}
+
+interface ConflictLocation {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  type: 'active_conflict' | 'tension_zone' | 'humanitarian';
+  description: string;
+  casualties?: string;
+  startDate?: string;
+}
+
+interface MarkerData {
+  kind: 'satellite' | 'launch' | 'conflict';
+  lat: number;
+  lng: number;
+  altitude: number;
+  data: SatellitePosition | Launch | ConflictLocation;
+  html: string;
 }
 
 // Tracking list: NORAD ID -> (name, type, operator)
@@ -96,11 +114,27 @@ const TRACKED_SATELLITES = [
   // === GALILEO (sample) ===
   { noradId: 40128, name: 'Galileo-FOC FM1', type: 'Navigation', operator: 'ESA' },
   { noradId: 40129, name: 'Galileo-FOC FM2', type: 'Navigation', operator: 'ESA' },
-  // === ISRO ===
-  { noradId: 45841, name: 'Cartosat-3', type: 'Earth Observation', operator: 'ISRO' },
-  { noradId: 41794, name: 'ResourceSat-2A', type: 'Earth Observation', operator: 'ISRO' },
-  { noradId: 43111, name: 'EOS-04 (RISAT-1A)', type: 'SAR Imaging', operator: 'ISRO' },
-  { noradId: 56227, name: 'EOS-08', type: 'Earth Observation', operator: 'ISRO' },
+  // === ISRO (expanded + corrected NORAD IDs) ===
+  { noradId: 44804, name: 'Cartosat-3', type: 'Earth Observation', operator: 'ISRO' },
+  { noradId: 41877, name: 'ResourceSat-2A', type: 'Earth Observation', operator: 'ISRO' },
+  { noradId: 51656, name: 'EOS-04 (RISAT-1A)', type: 'SAR Imaging', operator: 'ISRO' },
+  { noradId: 60454, name: 'EOS-08', type: 'Earth Observation', operator: 'ISRO' },
+  { noradId: 37387, name: 'ResourceSat-2', type: 'Earth Observation', operator: 'ISRO' },
+  { noradId: 35931, name: 'Oceansat-2', type: 'Ocean/Climate', operator: 'ISRO' },
+  { noradId: 54361, name: 'Oceansat-3 (EOS-06)', type: 'Ocean/Climate', operator: 'ISRO' },
+  { noradId: 39086, name: 'SARAL', type: 'Altimetry', operator: 'ISRO/CNES' },
+  { noradId: 41790, name: 'ScatSat-1', type: 'Weather', operator: 'ISRO' },
+  { noradId: 43719, name: 'HySIS', type: 'Multispectral', operator: 'ISRO' },
+  { noradId: 44078, name: 'EMISAT', type: 'Earth Observation', operator: 'ISRO' },
+  { noradId: 44233, name: 'RISAT-2B', type: 'SAR Imaging', operator: 'ISRO' },
+  { noradId: 44857, name: 'RISAT-2BR1', type: 'SAR Imaging', operator: 'ISRO' },
+  { noradId: 46905, name: 'EOS-01 (RISAT-2BR2)', type: 'SAR Imaging', operator: 'ISRO' },
+  { noradId: 40930, name: 'AstroSat', type: 'Telescope', operator: 'ISRO' },
+  { noradId: 58694, name: 'XPoSat', type: 'Telescope', operator: 'ISRO' },
+  { noradId: 43286, name: 'IRNSS-1I (NavIC)', type: 'Navigation', operator: 'ISRO' },
+  { noradId: 56759, name: 'NVS-01 (NavIC)', type: 'Navigation', operator: 'ISRO' },
+  { noradId: 62850, name: 'NVS-02 (NavIC)', type: 'Navigation', operator: 'ISRO' },
+  { noradId: 58990, name: 'INSAT-3DS', type: 'Weather', operator: 'ISRO' },
   // === JAXA ===
   { noradId: 39766, name: 'ALOS-2 (Daichi-2)', type: 'SAR Imaging', operator: 'JAXA' },
   { noradId: 55083, name: 'ALOS-4 (Daichi-4)', type: 'SAR Imaging', operator: 'JAXA' },
@@ -153,20 +187,112 @@ const SATELLITE_METADATA: { [key: number]: { purpose: string; inclination: numbe
   40115: { purpose: '31cm resolution commercial imaging', inclination: 97.2, orbitalPeriod: 97.0, launchDate: '2014-08-13', mass: 2800, apogee: 621, perigee: 613, powerSource: 'Solar arrays', instruments: ['WV110 Camera', 'CAVIS', 'SWIR Sensor'] },
   39766: { purpose: 'L-band SAR for disaster & cartography', inclination: 97.9, orbitalPeriod: 97.4, launchDate: '2014-05-24', mass: 2120, apogee: 632, perigee: 624, powerSource: 'Solar panels', instruments: ['PALSAR-2', 'SPAISE-2'] },
   41240: { purpose: 'Precision ocean surface altimetry', inclination: 66.05, orbitalPeriod: 112.4, launchDate: '2016-01-17', mass: 553, apogee: 1340, perigee: 1332, powerSource: 'Solar panels', instruments: ['Poseidon-3B Altimeter', 'AMR', 'DORIS', 'JMR'] },
+  40930: { purpose: 'Multi-wavelength space astronomy', inclination: 6.0, orbitalPeriod: 97.7, launchDate: '2015-09-28', mass: 1515, apogee: 650, perigee: 644, powerSource: 'Solar panels', instruments: ['UVIT', 'LAXPC', 'SXT', 'CZTI'] },
 };
 
 // Default metadata values for satellites not in the detailed list
 const DEFAULT_METADATA = { purpose: 'Operational satellite', inclination: 98.0, orbitalPeriod: 100, launchDate: 'Unknown', mass: 1000, apogee: 700, perigee: 690, powerSource: 'Solar panels', instruments: ['Primary Payload'] };
 
+// Middle East conflict zone data
+const CONFLICT_LOCATIONS: ConflictLocation[] = [
+  {
+    id: 'gaza',
+    name: 'Gaza Strip',
+    lat: 31.3547,
+    lng: 34.3088,
+    type: 'active_conflict',
+    description: 'Ongoing military operations in Gaza Strip. Severe humanitarian crisis with displaced populations and restricted aid access.',
+    casualties: '40,000+ reported casualties since Oct 2023',
+    startDate: '2023-10-07',
+  },
+  {
+    id: 'south-lebanon',
+    name: 'Southern Lebanon',
+    lat: 33.27,
+    lng: 35.20,
+    type: 'active_conflict',
+    description: 'Cross-border exchanges between Hezbollah and IDF. Buffer zone established per UN Resolution 1701.',
+    startDate: '2023-10-08',
+  },
+  {
+    id: 'yemen-houthi',
+    name: 'Yemen (Houthi-controlled)',
+    lat: 15.3694,
+    lng: 44.191,
+    type: 'active_conflict',
+    description: 'Houthi forces conducting Red Sea shipping attacks. US/UK coalition conducting strikes against Houthi targets.',
+    startDate: '2023-11-19',
+  },
+  {
+    id: 'syria-ne',
+    name: 'Northeast Syria',
+    lat: 36.20,
+    lng: 40.15,
+    type: 'tension_zone',
+    description: 'Post-Assad transition zone. Turkish-backed forces, SDF, and residual ISIS activity.',
+  },
+  {
+    id: 'iran',
+    name: 'Isfahan, Iran',
+    lat: 32.6546,
+    lng: 51.6680,
+    type: 'tension_zone',
+    description: 'Iranian nuclear enrichment facilities. Subject to international monitoring and sanctions.',
+  },
+  {
+    id: 'west-bank',
+    name: 'West Bank',
+    lat: 31.9522,
+    lng: 35.2332,
+    type: 'humanitarian',
+    description: 'Increased military operations and settler violence. Movement restrictions affecting Palestinian population.',
+  },
+  {
+    id: 'red-sea',
+    name: 'Red Sea / Bab el-Mandeb',
+    lat: 12.58,
+    lng: 43.33,
+    type: 'active_conflict',
+    description: 'Houthi attacks on commercial shipping. Major disruption to global trade route (12% of world trade).',
+  },
+];
+
+const CONFLICT_ZONE_GEOJSON = {
+  type: 'Feature' as const,
+  properties: { name: 'West Asia Conflict Zone' },
+  geometry: {
+    type: 'Polygon' as const,
+    coordinates: [[
+      [32.0, 29.5],
+      [34.0, 29.5],
+      [35.5, 31.0],
+      [36.0, 33.0],
+      [36.5, 34.5],
+      [42.0, 37.5],
+      [51.0, 37.5],
+      [57.0, 35.0],
+      [57.0, 25.0],
+      [51.0, 23.5],
+      [48.0, 28.0],
+      [44.0, 29.5],
+      [43.0, 12.0],
+      [42.5, 12.5],
+      [40.0, 15.0],
+      [38.0, 22.0],
+      [34.5, 27.5],
+      [32.0, 29.5],
+    ]],
+  },
+};
+
 // Convert ECI to Lat/Lng using simplified gravity model
 function eciToLatLng(eci: any) {
-  const earthRadiusKm = 6371;
   const x = eci.x;
   const y = eci.y;
   const z = eci.z;
 
   const lat = (Math.atan2(z, Math.sqrt(x * x + y * y)) * 180) / Math.PI;
-  const lng = (Math.atan2(y, x) * 180) / Math.PI - 0.5; // Approximate for Earth rotation
+  const lng = (Math.atan2(y, x) * 180) / Math.PI - 0.5;
 
   return { lat, lng };
 }
@@ -179,7 +305,6 @@ function getDistance(eci: any) {
 // Fetch TLE data from Celestrak and compute real satellite positions
 async function fetchRealSatellitePositions(): Promise<SatellitePosition[]> {
   try {
-    // Fetch TLE data from our local API (which fetches from Celestrak server-side)
     const response = await fetch('/api/tle');
     if (!response.ok) throw new Error('Failed to fetch TLE data from API');
 
@@ -190,11 +315,8 @@ async function fetchRealSatellitePositions(): Promise<SatellitePosition[]> {
 
     const lines = tleText.split('\n').filter((line: string) => line.trim().length > 0);
 
-    // Build a map of NORAD ID -> TLE lines
-    // TLE format: 3 lines per satellite (name, line1 starting with '1', line2 starting with '2')
     const tleMap: { [key: number]: { line1: string; line2: string } } = {};
     for (let i = 0; i < lines.length - 2; i += 3) {
-      const nameLine = lines[i];
       const line1 = lines[i + 1];
       const line2 = lines[i + 2];
 
@@ -209,7 +331,6 @@ async function fetchRealSatellitePositions(): Promise<SatellitePosition[]> {
 
     console.log(`TLE parsed: ${Object.keys(tleMap).length} satellites in dataset, checking ${TRACKED_SATELLITES.length} tracked`);
 
-    // Current time
     const now = new Date();
     const year = now.getUTCFullYear();
     const month = now.getUTCMonth() + 1;
@@ -225,24 +346,20 @@ async function fetchRealSatellitePositions(): Promise<SatellitePosition[]> {
       if (!tle) continue;
 
       try {
-        // Parse TLE and propagate to current time
         const satrec = twoline2satrec(tle.line1, tle.line2);
         const positionEci = propagate(satrec, year, month, day, hours, minutes, seconds);
 
-        if (!positionEci || !positionEci.position) continue; // Skip if propagation failed
+        if (!positionEci || !positionEci.position) continue;
 
         const { lat, lng } = eciToLatLng(positionEci.position);
         const distanceKm = getDistance(positionEci.position);
-        const altitude = Math.max(0, distanceKm - 6371); // Earth radius = 6371 km
+        const altitude = Math.max(0, distanceKm - 6371);
 
-        // Validate coordinates
         if (isNaN(lat) || isNaN(lng) || isNaN(altitude)) continue;
 
-        // Get speed from velocity vector (rough estimate)
         const vel = positionEci.velocity;
-        const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z) * 86.4; // Convert to km/h
+        const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z) * 86.4;
 
-        // Find matching metadata for additional data
         const meta = SATELLITE_METADATA[tracked.noradId] || DEFAULT_METADATA;
 
         positions.push({
@@ -251,7 +368,7 @@ async function fetchRealSatellitePositions(): Promise<SatellitePosition[]> {
           type: tracked.type,
           operator: tracked.operator,
           lat: Math.max(-90, Math.min(90, lat)),
-          lng: ((lng + 180) % 360) - 180, // Normalize to -180 to 180
+          lng: ((lng + 180) % 360) - 180,
           altitude: Math.round(altitude),
           speed: Math.round(speed),
           purpose: meta.purpose,
@@ -265,14 +382,12 @@ async function fetchRealSatellitePositions(): Promise<SatellitePosition[]> {
           instruments: meta.instruments,
           status: 'Active',
         });
-      } catch (err) {
-        // Silently skip failed computations
+      } catch {
         continue;
       }
     }
 
-    // Return real positions if we got enough, otherwise fall back to mock
-    console.log(`✓ Fetched ${positions.length} real satellites from Celestrak`);
+    console.log(`Fetched ${positions.length} real satellites from Celestrak`);
     return positions.length >= 5 ? positions : generateMockPositions();
   } catch (error) {
     console.error('Error fetching real satellite data:', error);
@@ -280,9 +395,8 @@ async function fetchRealSatellitePositions(): Promise<SatellitePosition[]> {
   }
 }
 
-// Generate mock satellite positions with slight variation
 function generateMockPositions(): SatellitePosition[] {
-  return TRACKED_SATELLITES.slice(0, 20).map((sat, i) => {
+  return TRACKED_SATELLITES.slice(0, 20).map((sat) => {
     const meta = SATELLITE_METADATA[sat.noradId] || DEFAULT_METADATA;
     return {
       id: sat.noradId,
@@ -299,7 +413,6 @@ function generateMockPositions(): SatellitePosition[] {
   });
 }
 
-// Fetch upcoming launches from TheSpaceDevs LL2 API
 async function fetchUpcomingLaunches(): Promise<Launch[]> {
   try {
     const response = await fetch('/api/launches');
@@ -328,68 +441,6 @@ async function fetchUpcomingLaunches(): Promise<Launch[]> {
     console.error('Error fetching launch data:', error);
     return [];
   }
-}
-
-function LocateButton() {
-  const map = useMap();
-
-  useEffect(() => {
-    const handleLocate = () => {
-      map.locate({ setView: true, maxZoom: 16 });
-    };
-
-    const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
-    const button = L.DomUtil.create('a', 'leaflet-control-locate', container);
-    button.href = '#';
-    button.title = 'Show my location';
-    button.innerHTML = '📍';
-    button.style.fontSize = '20px';
-    button.style.width = '36px';
-    button.style.height = '36px';
-    button.style.lineHeight = '36px';
-    button.style.textAlign = 'center';
-    button.style.color = '#fbbf24';
-    button.style.backgroundColor = 'rgba(30, 41, 59, 0.8)';
-    button.style.border = '1px solid rgba(251, 191, 36, 0.3)';
-    button.style.cursor = 'pointer';
-
-    button.addEventListener('click', (e) => {
-      e.preventDefault();
-      handleLocate();
-    });
-
-    button.addEventListener('mouseover', () => {
-      button.style.backgroundColor = 'rgba(30, 41, 59, 0.95)';
-    });
-
-    button.addEventListener('mouseout', () => {
-      button.style.backgroundColor = 'rgba(30, 41, 59, 0.8)';
-    });
-
-    const control = (L.Control as any).extend({
-      onAdd: () => container,
-    });
-
-    const locateControl = new control({ position: 'bottomright' });
-    locateControl.addTo(map);
-
-    map.on('locationfound', (e: any) => {
-      L.circleMarker([e.latitude, e.longitude], {
-        radius: 6,
-        fillColor: '#fbbf24',
-        color: '#f59e0b',
-        weight: 2,
-        opacity: 1,
-        fillOpacity: 0.8,
-      }).addTo(map).bindPopup('📍 You are here');
-    });
-
-    return () => {
-      map.removeControl(locateControl);
-    };
-  }, [map]);
-
-  return null;
 }
 
 function CountdownTimer({ net }: { net: string }) {
@@ -435,7 +486,7 @@ function CountdownTimer({ net }: { net: string }) {
   );
 }
 
-// Color scheme per satellite type - minimalist SpaceX aesthetic
+// Color scheme per satellite type
 function getSatelliteColor(type: string): string {
   const colorMap: { [key: string]: string } = {
     'Space Station': '#ff3d3d',
@@ -454,11 +505,9 @@ function getSatelliteColor(type: string): string {
   return colorMap[type] || '#00d9ff';
 }
 
-// SVG path data for each satellite type - thin geometric icons
+// SVG path data for each satellite type
 function getSatelliteShape(type: string): string {
-  // All paths designed for a 24x24 viewBox, thin stroke style
   const shapes: { [key: string]: string } = {
-    // Cross with solar panel wings
     'Space Station': `
       <line x1="4" y1="12" x2="20" y2="12" stroke-width="1.5"/>
       <line x1="12" y1="6" x2="12" y2="18" stroke-width="1.5"/>
@@ -466,7 +515,6 @@ function getSatelliteShape(type: string): string {
       <rect x="17" y="10" width="5" height="4" rx="0.5" fill="currentColor" opacity="0.3"/>
       <circle cx="12" cy="12" r="2" fill="currentColor"/>
     `,
-    // Camera lens / eye
     'Earth Observation': `
       <circle cx="12" cy="12" r="5" stroke-width="1.2" fill="none"/>
       <circle cx="12" cy="12" r="2" fill="currentColor"/>
@@ -475,14 +523,12 @@ function getSatelliteShape(type: string): string {
       <line x1="3" y1="12" x2="7" y2="12" stroke-width="1"/>
       <line x1="17" y1="12" x2="21" y2="12" stroke-width="1"/>
     `,
-    // Cloud with signal
     'Weather': `
       <path d="M6 16 Q6 12 10 12 Q10 8 14 8 Q18 8 18 12 Q22 12 22 16 Z" fill="none" stroke-width="1.2"/>
       <line x1="8" y1="19" x2="8" y2="21" stroke-width="1" opacity="0.5"/>
       <line x1="12" y1="19" x2="12" y2="22" stroke-width="1" opacity="0.5"/>
       <line x1="16" y1="19" x2="16" y2="21" stroke-width="1" opacity="0.5"/>
     `,
-    // Radar dish with signal arcs
     'SAR Imaging': `
       <path d="M6 18 L12 6 L18 18" fill="none" stroke-width="1.2"/>
       <line x1="12" y1="6" x2="12" y2="2" stroke-width="1"/>
@@ -490,19 +536,16 @@ function getSatelliteShape(type: string): string {
       <path d="M6 6 Q12 -2 18 6" fill="none" stroke-width="0.8" opacity="0.3"/>
       <circle cx="12" cy="18" r="1.5" fill="currentColor"/>
     `,
-    // Prism / spectrum
     'Multispectral': `
       <polygon points="12,4 4,20 20,20" fill="none" stroke-width="1.2"/>
       <line x1="10" y1="12" x2="6" y2="20" stroke-width="0.7" opacity="0.4"/>
       <line x1="12" y1="12" x2="12" y2="20" stroke-width="0.7" opacity="0.4"/>
       <line x1="14" y1="12" x2="18" y2="20" stroke-width="0.7" opacity="0.4"/>
     `,
-    // Wave
     'Ocean/Climate': `
       <path d="M2 12 Q6 6 10 12 Q14 18 18 12 Q20 10 22 12" fill="none" stroke-width="1.3"/>
       <path d="M2 16 Q6 10 10 16 Q14 22 18 16 Q20 14 22 16" fill="none" stroke-width="0.8" opacity="0.4"/>
     `,
-    // Downward beam
     'Altimetry': `
       <circle cx="12" cy="6" r="3" fill="none" stroke-width="1.2"/>
       <circle cx="12" cy="6" r="1" fill="currentColor"/>
@@ -511,7 +554,6 @@ function getSatelliteShape(type: string): string {
       <line x1="16" y1="9" x2="20" y2="20" stroke-width="0.8" opacity="0.4"/>
       <line x1="4" y1="20" x2="20" y2="20" stroke-width="0.8" opacity="0.5"/>
     `,
-    // Crosshair telescope
     'Telescope': `
       <circle cx="12" cy="12" r="7" fill="none" stroke-width="1.2"/>
       <circle cx="12" cy="12" r="3" fill="none" stroke-width="0.8"/>
@@ -521,14 +563,12 @@ function getSatelliteShape(type: string): string {
       <line x1="2" y1="12" x2="5" y2="12" stroke-width="1"/>
       <line x1="19" y1="12" x2="22" y2="12" stroke-width="1"/>
     `,
-    // Layered arcs
     'Atmosphere': `
       <path d="M4 18 Q12 2 20 18" fill="none" stroke-width="1.2"/>
       <path d="M7 18 Q12 6 17 18" fill="none" stroke-width="0.8" opacity="0.5"/>
       <path d="M10 18 Q12 10 14 18" fill="none" stroke-width="0.6" opacity="0.3"/>
       <line x1="4" y1="18" x2="20" y2="18" stroke-width="0.8" opacity="0.4"/>
     `,
-    // Sun burst
     'Space Weather': `
       <circle cx="12" cy="12" r="4" fill="none" stroke-width="1.2"/>
       <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
@@ -541,13 +581,11 @@ function getSatelliteShape(type: string): string {
       <line x1="19" y1="5" x2="16" y2="8" stroke-width="0.8"/>
       <line x1="8" y1="16" x2="5" y2="19" stroke-width="0.8"/>
     `,
-    // Compass arrow
     'Navigation': `
       <polygon points="12,2 16,14 12,12 8,14" fill="currentColor" opacity="0.6" stroke-width="1"/>
       <polygon points="12,22 8,14 12,16 16,14" fill="none" stroke-width="1"/>
       <circle cx="12" cy="12" r="1" fill="currentColor"/>
     `,
-    // Target rings
     'Geodesy': `
       <circle cx="12" cy="12" r="8" fill="none" stroke-width="1"/>
       <circle cx="12" cy="12" r="4.5" fill="none" stroke-width="0.8" opacity="0.5"/>
@@ -557,28 +595,20 @@ function getSatelliteShape(type: string): string {
   return shapes[type] || shapes['Earth Observation'];
 }
 
-function createSatelliteMarkerIcon(type: string) {
+function createSatelliteMarkerHtml(type: string): string {
   const color = getSatelliteColor(type);
   const isStation = type === 'Space Station';
   const iconSize = isStation ? 34 : 26;
   const svgSize = 24;
 
-  const iconHtml = `
-    <div class="sat-marker" style="width:${iconSize}px;height:${iconSize}px;filter:drop-shadow(0 0 4px ${color}80) drop-shadow(0 0 8px ${color}30);">
+  return `
+    <div class="sat-marker" style="width:${iconSize}px;height:${iconSize}px;filter:drop-shadow(0 0 4px ${color}80) drop-shadow(0 0 8px ${color}30);pointer-events:auto;cursor:pointer;">
       <svg width="${iconSize}" height="${iconSize}" viewBox="0 0 ${svgSize} ${svgSize}" xmlns="http://www.w3.org/2000/svg"
            style="color:${color};stroke:${color};overflow:visible;">
         ${getSatelliteShape(type)}
       </svg>
     </div>
   `;
-
-  return L.divIcon({
-    html: iconHtml,
-    iconSize: [iconSize, iconSize],
-    iconAnchor: [iconSize / 2, iconSize / 2],
-    popupAnchor: [0, -iconSize / 2],
-    className: 'satellite-marker-wrapper',
-  });
 }
 
 const LAUNCH_COLOR = '#ff6b35';
@@ -591,12 +621,12 @@ function getLaunchStatusColor(status: string): string {
   return LAUNCH_COLOR;
 }
 
-function createLaunchMarkerIcon(status: string) {
+function createLaunchMarkerHtml(status: string): string {
   const color = getLaunchStatusColor(status);
   const iconSize = 30;
 
-  const iconHtml = `
-    <div class="launch-marker" style="width:${iconSize}px;height:${iconSize}px;filter:drop-shadow(0 0 6px ${color}80) drop-shadow(0 0 12px ${color}30);">
+  return `
+    <div class="launch-marker" style="width:${iconSize}px;height:${iconSize}px;filter:drop-shadow(0 0 6px ${color}80) drop-shadow(0 0 12px ${color}30);pointer-events:auto;cursor:pointer;">
       <svg width="${iconSize}" height="${iconSize}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"
            style="color:${color};stroke:${color};overflow:visible;">
         <path d="M12 2 L14 8 L14 16 L10 16 L10 8 Z" fill="none" stroke-width="1.2"/>
@@ -608,14 +638,28 @@ function createLaunchMarkerIcon(status: string) {
       </svg>
     </div>
   `;
+}
 
-  return L.divIcon({
-    html: iconHtml,
-    iconSize: [iconSize, iconSize],
-    iconAnchor: [iconSize / 2, iconSize / 2],
-    popupAnchor: [0, -iconSize / 2],
-    className: 'launch-marker-wrapper',
-  });
+function getConflictColor(type: ConflictLocation['type']): string {
+  if (type === 'active_conflict') return '#ef4444';
+  if (type === 'tension_zone') return '#f59e0b';
+  return '#f97316';
+}
+
+function createConflictMarkerHtml(type: ConflictLocation['type']): string {
+  const color = getConflictColor(type);
+  const iconSize = 28;
+
+  return `
+    <div class="conflict-marker" style="width:${iconSize}px;height:${iconSize}px;filter:drop-shadow(0 0 6px ${color}80) drop-shadow(0 0 12px ${color}40);pointer-events:auto;cursor:pointer;">
+      <svg width="${iconSize}" height="${iconSize}" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"
+           style="color:${color};stroke:${color};overflow:visible;">
+        <path d="M12 2 L22 20 L2 20 Z" fill="none" stroke-width="1.5"/>
+        <line x1="12" y1="9" x2="12" y2="14" stroke-width="1.5"/>
+        <circle cx="12" cy="17" r="1" fill="currentColor"/>
+      </svg>
+    </div>
+  `;
 }
 
 export default function MapContainer() {
@@ -624,17 +668,12 @@ export default function MapContainer() {
   const [selectedSatellite, setSelectedSatellite] = useState<SatellitePosition | null>(null);
   const [launches, setLaunches] = useState<Launch[]>([]);
   const [selectedLaunch, setSelectedLaunch] = useState<Launch | null>(null);
+  const [selectedConflict, setSelectedConflict] = useState<ConflictLocation | null>(null);
+  const [globeSize, setGlobeSize] = useState({ width: 0, height: 0 });
+  const globeRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    // Fix Leaflet default icons in Next.js
-    delete (window as any).L.Icon.Default.prototype._getIconUrl;
-    (window as any).L.Icon.Default.mergeOptions({
-      iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-      iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-    });
-  }, []);
-
+  // Satellite fetch
   useEffect(() => {
     const fetchSatellitePositions = async () => {
       try {
@@ -647,16 +686,12 @@ export default function MapContainer() {
       }
     };
 
-    // Initial fetch
     fetchSatellitePositions();
-
-    // Fetch every 30 seconds
     const interval = setInterval(fetchSatellitePositions, 30000);
-
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch launches (15-min interval to respect LL2 rate limits)
+  // Launch fetch (15-min interval)
   useEffect(() => {
     const fetchLaunches = async () => {
       const launchData = await fetchUpcomingLaunches();
@@ -668,56 +703,166 @@ export default function MapContainer() {
     return () => clearInterval(interval);
   }, []);
 
+  // Track container size for Globe
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateSize = () => {
+      setGlobeSize({ width: container.clientWidth, height: container.clientHeight });
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  // Globe ready: set camera + auto-rotation
+  const handleGlobeReady = useCallback(() => {
+    if (!globeRef.current) return;
+
+    globeRef.current.pointOfView({ lat: 20.5937, lng: 78.9629, altitude: 2.5 }, 0);
+
+    const controls = globeRef.current.controls();
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.3;
+
+    let idleTimer: ReturnType<typeof setTimeout>;
+    controls.addEventListener('start', () => {
+      controls.autoRotate = false;
+      clearTimeout(idleTimer);
+    });
+    controls.addEventListener('end', () => {
+      idleTimer = setTimeout(() => { controls.autoRotate = true; }, 10000);
+    });
+  }, []);
+
+  // Build combined marker data array
+  const htmlElements: MarkerData[] = [
+    ...satellites.map(sat => ({
+      kind: 'satellite' as const,
+      lat: sat.lat,
+      lng: sat.lng,
+      altitude: Math.min(sat.altitude / 6371 * 0.3, 0.5),
+      data: sat,
+      html: createSatelliteMarkerHtml(sat.type),
+    })),
+    ...launches.map(launch => ({
+      kind: 'launch' as const,
+      lat: launch.padLat,
+      lng: launch.padLng,
+      altitude: 0.01,
+      data: launch,
+      html: createLaunchMarkerHtml(launch.status),
+    })),
+    ...CONFLICT_LOCATIONS.map(loc => ({
+      kind: 'conflict' as const,
+      lat: loc.lat,
+      lng: loc.lng,
+      altitude: 0.015,
+      data: loc,
+      html: createConflictMarkerHtml(loc.type),
+    })),
+  ];
+
+  const handleMarkerClick = useCallback((d: any) => {
+    if (d.kind === 'satellite') {
+      setSelectedLaunch(null);
+      setSelectedConflict(null);
+      setSelectedSatellite(d.data as SatellitePosition);
+    } else if (d.kind === 'launch') {
+      setSelectedSatellite(null);
+      setSelectedConflict(null);
+      setSelectedLaunch(d.data as Launch);
+    } else if (d.kind === 'conflict') {
+      setSelectedSatellite(null);
+      setSelectedLaunch(null);
+      setSelectedConflict(d.data as ConflictLocation);
+    }
+  }, []);
+
+  const closeSidebar = useCallback(() => {
+    setSelectedSatellite(null);
+    setSelectedLaunch(null);
+    setSelectedConflict(null);
+  }, []);
+
+  const sidebarOpen = selectedSatellite || selectedLaunch || selectedConflict;
+
   return (
-    <>
-      <LeafletMap
-        center={[20.5937, 78.9629]}
-        zoom={5}
-        style={{ height: '100vh', width: '100%' }}
-        className="z-0"
-      >
-        <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+      {globeSize.width > 0 && (
+        <Globe
+          ref={globeRef}
+          width={globeSize.width}
+          height={globeSize.height}
+          globeImageUrl="//unpkg.com/three-globe/example/img/earth-night.jpg"
+          backgroundImageUrl="//unpkg.com/three-globe/example/img/night-sky.png"
+          backgroundColor="rgba(0,0,0,0)"
+          atmosphereColor="#00d9ff"
+          atmosphereAltitude={0.25}
+
+          htmlElementsData={htmlElements}
+          htmlLat={(d: any) => d.lat}
+          htmlLng={(d: any) => d.lng}
+          htmlAltitude={(d: any) => d.altitude}
+          htmlElement={(d: any) => {
+            const el = document.createElement('div');
+            el.innerHTML = d.html;
+            el.style.pointerEvents = 'auto';
+            el.style.cursor = 'pointer';
+            el.addEventListener('click', (e) => {
+              e.stopPropagation();
+              handleMarkerClick(d);
+            });
+            return el;
+          }}
+
+          polygonsData={[CONFLICT_ZONE_GEOJSON]}
+          polygonCapColor={() => 'rgba(220, 50, 50, 0.15)'}
+          polygonSideColor={() => 'rgba(220, 50, 50, 0.05)'}
+          polygonStrokeColor={() => 'rgba(255, 107, 53, 0.6)'}
+          polygonAltitude={() => 0.005}
+
+          onGlobeReady={handleGlobeReady}
         />
+      )}
 
-        {/* Satellite Markers */}
-        {satellites.map((sat) => {
-          const icon = createSatelliteMarkerIcon(sat.type);
-
-          return (
-            <Marker
-              key={sat.id}
-              position={[sat.lat, sat.lng]}
-              icon={icon}
-              eventHandlers={{
-                click: () => {
-                  setSelectedLaunch(null);
-                  setSelectedSatellite(sat);
-                },
-              }}
-            />
+      {/* Locate Button */}
+      <button
+        onClick={() => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              globeRef.current?.pointOfView(
+                { lat: pos.coords.latitude, lng: pos.coords.longitude, altitude: 1.5 },
+                1000
+              );
+            },
+            () => alert('Location access denied')
           );
-        })}
-
-        {/* Launch Markers */}
-        {launches.map((launch) => (
-          <Marker
-            key={`launch-${launch.id}`}
-            position={[launch.padLat, launch.padLng]}
-            icon={createLaunchMarkerIcon(launch.status)}
-            eventHandlers={{
-              click: () => {
-                setSelectedSatellite(null);
-                setSelectedLaunch(launch);
-              },
-            }}
-          />
-        ))}
-
-        <ZoomControl position="bottomright" />
-        <LocateButton />
-      </LeafletMap>
+        }}
+        style={{
+          position: 'absolute',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 20,
+          width: '40px',
+          height: '40px',
+          borderRadius: '8px',
+          background: 'rgba(30, 41, 59, 0.8)',
+          border: '1px solid rgba(251, 191, 36, 0.3)',
+          color: '#fbbf24',
+          fontSize: '18px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+        title="Show my location"
+      >
+        &#9678;
+      </button>
 
       {/* Satellite Details Sidebar */}
       {selectedSatellite && (
@@ -734,7 +879,6 @@ export default function MapContainer() {
           overflow: 'auto',
           fontFamily: 'Geist Sans, system-ui, sans-serif',
         }}>
-          {/* Close Button */}
           <button
             onClick={() => setSelectedSatellite(null)}
             style={{
@@ -767,13 +911,10 @@ export default function MapContainer() {
             ✕
           </button>
 
-          {/* Header with Icon and Name */}
           <div style={{ padding: '32px 24px 24px', borderBottom: '1px solid rgba(0, 217, 255, 0.2)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
               <div style={{
-                width: '12px',
-                height: '12px',
-                borderRadius: '50%',
+                width: '12px', height: '12px', borderRadius: '50%',
                 background: getSatelliteColor(selectedSatellite.type),
                 boxShadow: `0 0 8px ${getSatelliteColor(selectedSatellite.type)}, 0 0 20px ${getSatelliteColor(selectedSatellite.type)}40`,
               }} />
@@ -785,161 +926,89 @@ export default function MapContainer() {
               {selectedSatellite.name}
             </h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{
-                padding: '2px 8px',
-                fontSize: '10px',
-                color: getSatelliteColor(selectedSatellite.type),
-                border: `1px solid ${getSatelliteColor(selectedSatellite.type)}40`,
-                borderRadius: '3px',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                fontWeight: '600',
-              }}>
+              <span style={{ padding: '2px 8px', fontSize: '10px', color: getSatelliteColor(selectedSatellite.type), border: `1px solid ${getSatelliteColor(selectedSatellite.type)}40`, borderRadius: '3px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
                 {selectedSatellite.type}
               </span>
-              <span style={{
-                padding: '2px 8px',
-                fontSize: '10px',
-                color: '#10b981',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-                borderRadius: '3px',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                fontWeight: '600',
-              }}>
+              <span style={{ padding: '2px 8px', fontSize: '10px', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '3px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
                 {selectedSatellite.status}
               </span>
             </div>
           </div>
 
-          {/* Current Position Section */}
           <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(0, 217, 255, 0.2)' }}>
-            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
-              Current Position
-            </p>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Current Position</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LATITUDE</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>
-                  {selectedSatellite.lat.toFixed(4)}°
-                </p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>{selectedSatellite.lat.toFixed(4)}°</p>
               </div>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LONGITUDE</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>
-                  {selectedSatellite.lng.toFixed(4)}°
-                </p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>{selectedSatellite.lng.toFixed(4)}°</p>
               </div>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>ALTITUDE</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>
-                  {selectedSatellite.altitude.toLocaleString()} km
-                </p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>{selectedSatellite.altitude.toLocaleString()} km</p>
               </div>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>VELOCITY</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>
-                  {selectedSatellite.speed.toLocaleString()} km/h
-                </p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>{selectedSatellite.speed.toLocaleString()} km/h</p>
               </div>
             </div>
           </div>
 
-          {/* Orbital Parameters */}
           <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(0, 217, 255, 0.2)' }}>
-            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
-              Orbital Parameters
-            </p>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Orbital Parameters</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>INCLINATION</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>
-                  {selectedSatellite.inclination.toFixed(2)}°
-                </p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>{selectedSatellite.inclination.toFixed(2)}°</p>
               </div>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>ORBITAL PERIOD</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>
-                  {selectedSatellite.orbitalPeriod.toFixed(1)} min
-                </p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>{selectedSatellite.orbitalPeriod.toFixed(1)} min</p>
               </div>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>APOGEE</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>
-                  {selectedSatellite.apogee.toLocaleString()} km
-                </p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>{selectedSatellite.apogee.toLocaleString()} km</p>
               </div>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>PERIGEE</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>
-                  {selectedSatellite.perigee.toLocaleString()} km
-                </p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#00d9ff', fontFamily: 'monospace', fontWeight: '600' }}>{selectedSatellite.perigee.toLocaleString()} km</p>
               </div>
             </div>
           </div>
 
-          {/* Satellite Properties */}
           <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(0, 217, 255, 0.2)' }}>
-            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
-              Properties
-            </p>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Properties</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LAUNCH DATE</p>
-                <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1' }}>
-                  {selectedSatellite.launchDate}
-                </p>
+                <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1' }}>{selectedSatellite.launchDate}</p>
               </div>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>MASS</p>
-                <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1', fontFamily: 'monospace' }}>
-                  {selectedSatellite.mass.toLocaleString()} kg
-                </p>
+                <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1', fontFamily: 'monospace' }}>{selectedSatellite.mass.toLocaleString()} kg</p>
               </div>
             </div>
             <div style={{ marginTop: '12px' }}>
               <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>POWER SOURCE</p>
-              <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1' }}>
-                {selectedSatellite.powerSource}
-              </p>
+              <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1' }}>{selectedSatellite.powerSource}</p>
             </div>
           </div>
 
-          {/* Operator & Mission */}
           <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(0, 217, 255, 0.2)' }}>
-            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
-              Organization
-            </p>
-            <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#00d9ff', fontWeight: '600' }}>
-              {selectedSatellite.operator}
-            </p>
-            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
-              Mission
-            </p>
-            <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1', lineHeight: '1.6' }}>
-              {selectedSatellite.purpose}
-            </p>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Organization</p>
+            <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#00d9ff', fontWeight: '600' }}>{selectedSatellite.operator}</p>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Mission</p>
+            <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1', lineHeight: '1.6' }}>{selectedSatellite.purpose}</p>
           </div>
 
-          {/* Instruments */}
           <div style={{ padding: '20px 24px' }}>
-            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
-              Instruments
-            </p>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Instruments</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {selectedSatellite.instruments.map((instrument, idx) => (
-                <p
-                  key={idx}
-                  style={{
-                    margin: '0',
-                    padding: '6px 8px',
-                    fontSize: '11px',
-                    color: '#cbd5e1',
-                    background: 'rgba(0, 217, 255, 0.05)',
-                    border: '1px solid rgba(0, 217, 255, 0.2)',
-                    borderRadius: '4px',
-                  }}
-                >
+                <p key={idx} style={{ margin: '0', padding: '6px 8px', fontSize: '11px', color: '#cbd5e1', background: 'rgba(0, 217, 255, 0.05)', border: '1px solid rgba(0, 217, 255, 0.2)', borderRadius: '4px' }}>
                   {instrument}
                 </p>
               ))}
@@ -951,121 +1020,58 @@ export default function MapContainer() {
       {/* Launch Details Sidebar */}
       {selectedLaunch && (
         <div style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: '420px',
+          position: 'absolute', left: 0, top: 0, bottom: 0, width: '420px',
           background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 14, 39, 0.98) 100%)',
           borderRight: '1px solid rgba(255, 107, 53, 0.3)',
           boxShadow: '8px 0 32px rgba(0, 0, 0, 0.5)',
-          zIndex: 100,
-          overflow: 'auto',
-          fontFamily: 'Geist Sans, system-ui, sans-serif',
+          zIndex: 100, overflow: 'auto', fontFamily: 'Geist Sans, system-ui, sans-serif',
         }}>
-          {/* Close Button */}
-          <button
-            onClick={() => setSelectedLaunch(null)}
-            style={{
-              position: 'absolute',
-              top: '16px',
-              right: '16px',
-              background: 'rgba(255, 107, 53, 0.1)',
-              border: '1px solid rgba(255, 107, 53, 0.3)',
-              color: '#ff6b35',
-              width: '32px',
-              height: '32px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '18px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'all 0.2s ease',
-              zIndex: 101,
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 107, 53, 0.2)';
-              e.currentTarget.style.boxShadow = '0 0 12px rgba(255, 107, 53, 0.4)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 107, 53, 0.1)';
-              e.currentTarget.style.boxShadow = 'none';
-            }}
-          >
-            ✕
-          </button>
+          <button onClick={() => setSelectedLaunch(null)} style={{
+            position: 'absolute', top: '16px', right: '16px',
+            background: 'rgba(255, 107, 53, 0.1)', border: '1px solid rgba(255, 107, 53, 0.3)', color: '#ff6b35',
+            width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', fontSize: '18px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease', zIndex: 101,
+          }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 107, 53, 0.2)'; e.currentTarget.style.boxShadow = '0 0 12px rgba(255, 107, 53, 0.4)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255, 107, 53, 0.1)'; e.currentTarget.style.boxShadow = 'none'; }}
+          >✕</button>
 
-          {/* Header */}
           <div style={{ padding: '32px 24px 24px', borderBottom: '1px solid rgba(255, 107, 53, 0.2)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-              <div style={{
-                width: '12px',
-                height: '12px',
-                borderRadius: '50%',
-                background: getLaunchStatusColor(selectedLaunch.status),
-                boxShadow: `0 0 8px ${getLaunchStatusColor(selectedLaunch.status)}, 0 0 20px ${getLaunchStatusColor(selectedLaunch.status)}40`,
-              }} />
-              <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: '600' }}>
-                UPCOMING LAUNCH
-              </span>
+              <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: getLaunchStatusColor(selectedLaunch.status), boxShadow: `0 0 8px ${getLaunchStatusColor(selectedLaunch.status)}, 0 0 20px ${getLaunchStatusColor(selectedLaunch.status)}40` }} />
+              <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: '600' }}>UPCOMING LAUNCH</span>
             </div>
-            <h2 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '700', color: '#e2e8f0', letterSpacing: '0.5px' }}>
-              {selectedLaunch.name}
-            </h2>
+            <h2 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: '700', color: '#e2e8f0', letterSpacing: '0.5px' }}>{selectedLaunch.name}</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{
-                padding: '2px 8px',
-                fontSize: '10px',
-                color: getLaunchStatusColor(selectedLaunch.status),
-                border: `1px solid ${getLaunchStatusColor(selectedLaunch.status)}40`,
-                borderRadius: '3px',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                fontWeight: '600',
-              }}>
+              <span style={{ padding: '2px 8px', fontSize: '10px', color: getLaunchStatusColor(selectedLaunch.status), border: `1px solid ${getLaunchStatusColor(selectedLaunch.status)}40`, borderRadius: '3px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
                 {selectedLaunch.status}
               </span>
             </div>
           </div>
 
-          {/* Countdown */}
           <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255, 107, 53, 0.2)' }}>
-            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
-              Countdown
-            </p>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Countdown</p>
             <CountdownTimer net={selectedLaunch.net} />
           </div>
 
-          {/* Launch Details */}
           <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255, 107, 53, 0.2)' }}>
-            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
-              Launch Details
-            </p>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Launch Details</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>ROCKET</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#ff6b35', fontWeight: '600' }}>
-                  {selectedLaunch.rocketName}
-                </p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#ff6b35', fontWeight: '600' }}>{selectedLaunch.rocketName}</p>
               </div>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>PROVIDER</p>
-                <p style={{ margin: '0', fontSize: '13px', color: '#e2e8f0', fontWeight: '600' }}>
-                  {selectedLaunch.provider}
-                </p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#e2e8f0', fontWeight: '600' }}>{selectedLaunch.provider}</p>
               </div>
               <div style={{ gridColumn: 'span 2' }}>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LAUNCH PAD</p>
-                <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1' }}>
-                  {selectedLaunch.padName}
-                </p>
+                <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1' }}>{selectedLaunch.padName}</p>
               </div>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>TARGET ORBIT</p>
-                <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1' }}>
-                  {selectedLaunch.orbit}
-                </p>
+                <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1' }}>{selectedLaunch.orbit}</p>
               </div>
               <div>
                 <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LAUNCH DATE</p>
@@ -1076,22 +1082,98 @@ export default function MapContainer() {
             </div>
           </div>
 
-          {/* Mission Description */}
           <div style={{ padding: '20px 24px' }}>
-            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
-              Mission
-            </p>
-            <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1', lineHeight: '1.6' }}>
-              {selectedLaunch.missionDescription}
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Mission</p>
+            <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1', lineHeight: '1.6' }}>{selectedLaunch.missionDescription}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Conflict Info Sidebar */}
+      {selectedConflict && (
+        <div style={{
+          position: 'absolute', left: 0, top: 0, bottom: 0, width: '420px',
+          background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 14, 39, 0.98) 100%)',
+          borderRight: '1px solid rgba(239, 68, 68, 0.3)',
+          boxShadow: '8px 0 32px rgba(0, 0, 0, 0.5)',
+          zIndex: 100, overflow: 'auto', fontFamily: 'Geist Sans, system-ui, sans-serif',
+        }}>
+          <button onClick={() => setSelectedConflict(null)} style={{
+            position: 'absolute', top: '16px', right: '16px',
+            background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#ef4444',
+            width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', fontSize: '18px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s ease', zIndex: 101,
+          }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)'; e.currentTarget.style.boxShadow = '0 0 12px rgba(239, 68, 68, 0.4)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; e.currentTarget.style.boxShadow = 'none'; }}
+          >✕</button>
+
+          <div style={{ padding: '32px 24px 24px', borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{
+                width: '12px', height: '12px', borderRadius: '50%',
+                background: getConflictColor(selectedConflict.type),
+                boxShadow: `0 0 8px ${getConflictColor(selectedConflict.type)}, 0 0 20px ${getConflictColor(selectedConflict.type)}40`,
+              }} />
+              <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: '600' }}>
+                {selectedConflict.type.replace('_', ' ')}
+              </span>
+            </div>
+            <h2 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '700', color: '#e2e8f0', letterSpacing: '0.5px' }}>
+              {selectedConflict.name}
+            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ padding: '2px 8px', fontSize: '10px', color: getConflictColor(selectedConflict.type), border: `1px solid ${getConflictColor(selectedConflict.type)}40`, borderRadius: '3px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>
+                {selectedConflict.type.replace('_', ' ')}
+              </span>
+            </div>
+          </div>
+
+          <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Coordinates</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LATITUDE</p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#ef4444', fontFamily: 'monospace', fontWeight: '600' }}>{selectedConflict.lat.toFixed(4)}°</p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 4px 0', fontSize: '9px', color: '#64748b' }}>LONGITUDE</p>
+                <p style={{ margin: '0', fontSize: '13px', color: '#ef4444', fontFamily: 'monospace', fontWeight: '600' }}>{selectedConflict.lng.toFixed(4)}°</p>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>
+            <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Situation</p>
+            <p style={{ margin: '0', fontSize: '12px', color: '#cbd5e1', lineHeight: '1.6' }}>{selectedConflict.description}</p>
+          </div>
+
+          {selectedConflict.casualties && (
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>
+              <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Reported Casualties</p>
+              <p style={{ margin: '0', fontSize: '13px', color: '#ef4444', fontWeight: '600' }}>{selectedConflict.casualties}</p>
+            </div>
+          )}
+
+          {selectedConflict.startDate && (
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>
+              <p style={{ margin: '0 0 12px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600' }}>Conflict Start</p>
+              <p style={{ margin: '0', fontSize: '13px', color: '#cbd5e1', fontFamily: 'monospace' }}>{selectedConflict.startDate}</p>
+            </div>
+          )}
+
+          <div style={{ padding: '20px 24px' }}>
+            <p style={{ margin: '0', fontSize: '10px', color: '#64748b', lineHeight: '1.5', fontStyle: 'italic' }}>
+              Data shown for informational purposes. Sources: open intelligence reports.
             </p>
           </div>
         </div>
       )}
 
       {/* Overlay Backdrop when sidebar is open */}
-      {(selectedSatellite || selectedLaunch) && (
+      {sidebarOpen && (
         <div
-          onClick={() => { setSelectedSatellite(null); setSelectedLaunch(null); }}
+          onClick={closeSidebar}
           style={{
             position: 'absolute',
             top: 0,
@@ -1127,6 +1209,9 @@ export default function MapContainer() {
               <span style={{ color: '#ff6b35', fontWeight: '600' }}>{launches.length}</span> LAUNCH
             </p>
           )}
+          <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
+            <span style={{ color: '#ef4444', fontWeight: '600' }}>{CONFLICT_LOCATIONS.length}</span> ZONE
+          </p>
         </div>
       )}
       {loading && (
@@ -1146,6 +1231,6 @@ export default function MapContainer() {
           </p>
         </div>
       )}
-    </>
+    </div>
   );
 }

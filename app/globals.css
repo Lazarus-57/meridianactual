@@ -32,72 +32,45 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Leaflet map dark theme adjustments */
-.leaflet-container {
-  background: #0a0e27;
-}
-
-.leaflet-tile-pane {
-  opacity: 0.95;
-}
-
-.leaflet-control-zoom {
-  border-radius: 8px;
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
-}
-
-.leaflet-control-zoom-in,
-.leaflet-control-zoom-out {
-  background: rgba(30, 41, 59, 0.8) !important;
-  color: #60a5fa !important;
-  border: 1px solid rgba(96, 165, 250, 0.3) !important;
-  font-weight: bold;
-}
-
-.leaflet-control-zoom-in:hover,
-.leaflet-control-zoom-out:hover {
-  background: rgba(30, 41, 59, 0.95) !important;
-  color: #3b82f6 !important;
-}
-
-.leaflet-control-attribution {
-  background: rgba(15, 23, 42, 0.7) !important;
-  color: #94a3b8 !important;
-  font-size: 11px;
-}
-
-.leaflet-control-attribution a {
-  color: #60a5fa !important;
-}
-
-/* Custom Satellite Marker Styling */
-.satellite-marker-wrapper {
-  background: transparent !important;
-  border: none !important;
-}
-
+/* Satellite Marker Styling */
 .sat-marker {
   cursor: pointer;
   transition: transform 0.2s ease, filter 0.2s ease;
 }
 
-.satellite-marker-wrapper:hover .sat-marker {
+.sat-marker:hover {
   transform: scale(1.5);
   filter: drop-shadow(0 0 8px currentColor) drop-shadow(0 0 16px currentColor) !important;
 }
 
 /* Launch Marker Styling */
-.launch-marker-wrapper {
-  background: transparent !important;
-  border: none !important;
-}
-
 .launch-marker {
   cursor: pointer;
   transition: transform 0.2s ease, filter 0.2s ease;
 }
 
-.launch-marker-wrapper:hover .launch-marker {
+.launch-marker:hover {
   transform: scale(1.5);
   filter: drop-shadow(0 0 8px #ff6b35) drop-shadow(0 0 16px #ff6b35) !important;
+}
+
+/* Conflict Marker Styling */
+.conflict-marker {
+  cursor: pointer;
+  transition: transform 0.2s ease, filter 0.2s ease;
+  animation: conflict-pulse 2s ease-in-out infinite;
+}
+
+.conflict-marker:hover {
+  transform: scale(1.5);
+}
+
+@keyframes conflict-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Globe canvas */
+.globe-container canvas {
+  outline: none;
 }

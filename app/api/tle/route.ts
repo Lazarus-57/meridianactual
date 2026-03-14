@@ -14,6 +14,7 @@ const TLE_GROUPS = [
   'noaa',         // NOAA polar orbiters
   'goes',         // GOES geostationary
   'gnss',         // GPS, Galileo, navigation
+  'indian',       // ISRO satellites (Cartosat, Oceansat, IRNSS, INSAT, etc.)
 ];
 
 async function fetchGroup(group: string, signal: AbortSignal): Promise<string> {
