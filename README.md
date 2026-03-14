@@ -1,4 +1,4 @@
-# Meridian Actual
+# Meridian
 
 **Real-time 3D global surveillance. Every satellite. Every flight. Live.**
 
@@ -113,8 +113,8 @@ No API keys required for core functionality. The TLE, launch, and ADS-B sources 
 ## Versioning
 
 - **Mk.1** — Current release. Space tracking, aviation mode, launches, conflict overlay.
-- **Mk.2** — Planned. Orbital visualizer, rocket trajectory planner.
+- **Mk.2** — Planned.
 
 ---
 
-*Meridian Actual — built by Joshua.*
+*Meridian — built by Joshua.*
