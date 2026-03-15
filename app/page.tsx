@@ -223,7 +223,7 @@ export default function LandingPage() {
             className="text-sm md:text-base text-zinc-400 mt-10 max-w-lg font-light leading-relaxed text-center mx-auto"
             style={{ animation: mounted ? 'fade-up 1s ease-out 2s both' : 'none' }}
           >
-            Every satellite. Every launch. Tracked in real time across the entire orbital envelope.
+            80+ spacecraft. 15+ launches. Tracked in real time across the orbital envelope.
           </p>
 
           <Link

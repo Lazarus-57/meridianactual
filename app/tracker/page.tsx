@@ -22,9 +22,6 @@ export default function TrackerPage() {
           <a href="/" className="text-xl font-light tracking-widest text-white hover:text-cyan-400 transition-colors duration-300">
             MERIDIAN<span className="text-emerald-400">.</span>ACTUAL
           </a>
-          <span className="text-xs text-zinc-600 tracking-wide font-light hidden md:inline">
-            Every launch. Overhead. Live
-          </span>
         </div>
         <div className="text-xs text-zinc-500 font-mono">Mk.1</div>
       </div>
