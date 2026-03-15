@@ -1026,7 +1026,7 @@ export default function MapContainer() {
 
     const isAv = modeRef.current === 'aviation';
     if (isAv) {
-      globeRef.current.pointOfView({ lat: 22.5, lng: 78.9, altitude: 0.55 }, 0);
+      globeRef.current.pointOfView({ lat: 20.0, lng: 78.9, altitude: 0.45 }, 0);
     } else {
       globeRef.current.pointOfView({ lat: 20.5937, lng: 78.9629, altitude: 2.5 }, 0);
     }
@@ -1034,6 +1034,11 @@ export default function MapContainer() {
     const controls = globeRef.current.controls();
     controls.autoRotate = !isAv;
     controls.autoRotateSpeed = 0.3;
+
+    // Nudge controls to force HTML markers to render at correct positions
+    setTimeout(() => {
+      controls.dispatchEvent({ type: 'change' });
+    }, 200);
 
     let idleTimer: ReturnType<typeof setTimeout>;
     controls.addEventListener('start', () => {
@@ -1172,7 +1177,7 @@ export default function MapContainer() {
       setSelectedConflict(null);
       setSelectedAircraft(d.data as Aircraft);
       const ac = d.data as Aircraft;
-      globeRef.current?.pointOfView({ lat: ac.lat, lng: ac.lng, altitude: 0.5 }, 1000);
+      globeRef.current?.pointOfView({ lat: ac.lat, lng: ac.lng, altitude: 0.45 }, 1000);
     }
   }, []);
 
