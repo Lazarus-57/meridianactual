@@ -202,7 +202,7 @@ export default function LandingPage() {
           </p>
 
           <h1
-            className="text-7xl md:text-8xl lg:text-9xl font-extralight uppercase"
+            className="text-4xl sm:text-7xl md:text-8xl lg:text-9xl font-extralight uppercase"
             style={{
               animation: mounted ? 'title-reveal 2s ease-out 0.5s both' : 'none',
             }}
@@ -228,7 +228,7 @@ export default function LandingPage() {
 
           <Link
             href="/tracker"
-            className="inline-block mt-14 px-12 py-4 border border-cyan-500/30 text-cyan-400 text-sm font-mono uppercase transition-all duration-300 hover:bg-cyan-500/10 hover:border-cyan-400/60"
+            className="inline-block mt-14 px-8 sm:px-12 py-4 border border-cyan-500/30 text-cyan-400 text-sm font-mono uppercase transition-all duration-300 hover:bg-cyan-500/10 hover:border-cyan-400/60"
             style={{
               letterSpacing: '0.3em',
               animation: mounted ? 'fade-up 1s ease-out 2.5s both, glow-pulse 3s ease-in-out 3.5s infinite' : 'none',
@@ -301,7 +301,7 @@ export default function LandingPage() {
 
           <Link
             href="/tracker"
-            className="inline-block px-14 py-4 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-sm font-mono uppercase transition-all duration-300 hover:bg-cyan-500/20 hover:border-cyan-400/60 hover:shadow-[0_0_40px_rgba(0,217,255,0.3)]"
+            className="inline-block px-8 sm:px-14 py-4 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-sm font-mono uppercase transition-all duration-300 hover:bg-cyan-500/20 hover:border-cyan-400/60 hover:shadow-[0_0_40px_rgba(0,217,255,0.3)]"
             style={{ letterSpacing: '0.3em' }}
           >
             Launch Tracker

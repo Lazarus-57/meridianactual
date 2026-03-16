@@ -17,9 +17,9 @@ export default function TrackerPage() {
       <style jsx global>{`html, body { overflow: hidden; height: 100vh; }`}</style>
 
       {/* Top Bar */}
-      <div className="z-10 px-8 py-3 flex justify-between items-center border-b border-zinc-900">
+      <div className="z-10 px-4 md:px-8 py-3 flex justify-between items-center border-b border-zinc-900">
         <div className="flex items-center gap-4">
-          <a href="/" className="text-xl font-light tracking-widest text-white hover:text-cyan-400 transition-colors duration-300">
+          <a href="/" className="text-sm sm:text-xl font-light tracking-widest text-white hover:text-cyan-400 transition-colors duration-300">
             MERIDIAN<span className="text-emerald-400">.</span>ACTUAL
           </a>
         </div>

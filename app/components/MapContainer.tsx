@@ -1455,7 +1455,7 @@ export default function MapContainer() {
           right: 0,
           top: 0,
           bottom: 0,
-          width: '420px',
+          width: 'min(420px, 100vw)',
           background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 14, 39, 0.98) 100%)',
           borderLeft: '1px solid rgba(0, 217, 255, 0.3)',
           boxShadow: '-8px 0 32px rgba(0, 0, 0, 0.5)',
@@ -1604,7 +1604,7 @@ export default function MapContainer() {
       {/* Launch Details Sidebar */}
       {selectedLaunch && (
         <div style={{
-          position: 'absolute', right: 0, top: 0, bottom: 0, width: '420px',
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: 'min(420px, 100vw)',
           background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 14, 39, 0.98) 100%)',
           borderLeft: '1px solid rgba(255, 107, 53, 0.3)',
           boxShadow: '-8px 0 32px rgba(0, 0, 0, 0.5)',
@@ -1676,7 +1676,7 @@ export default function MapContainer() {
       {/* Conflict Info Sidebar */}
       {selectedConflict && (
         <div style={{
-          position: 'absolute', right: 0, top: 0, bottom: 0, width: '420px',
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: 'min(420px, 100vw)',
           background: 'linear-gradient(180deg, rgba(10, 14, 30, 0.98) 0%, rgba(6, 10, 30, 0.98) 100%)',
           borderLeft: '1px solid rgba(220, 38, 38, 0.2)',
           boxShadow: '-8px 0 32px rgba(0, 0, 0, 0.6)',
@@ -1757,7 +1757,7 @@ export default function MapContainer() {
       {/* Aircraft Details Sidebar — sky/aviation theme */}
       {selectedAircraft && (
         <div style={{
-          position: 'absolute', right: 0, top: 0, bottom: 0, width: '420px',
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: 'min(420px, 100vw)',
           background: 'linear-gradient(180deg, rgba(15, 30, 55, 0.97) 0%, rgba(10, 22, 45, 0.97) 100%)',
           borderLeft: '1px solid rgba(56, 163, 224, 0.25)',
           boxShadow: '-8px 0 32px rgba(0, 0, 0, 0.5)',
@@ -1979,7 +1979,7 @@ export default function MapContainer() {
             position: 'absolute',
             top: 0,
             left: 0,
-            right: 420,
+            right: 'min(420px, 100vw)',
             bottom: 0,
             zIndex: 50,
             cursor: 'pointer',
@@ -1991,7 +1991,7 @@ export default function MapContainer() {
       {!loading && !(isAviation && aircraftLoading) && (
         <div style={{
           position: 'absolute',
-          top: '16px',
+          top: globeSize.width > 0 && globeSize.width < 480 ? '48px' : '16px',
           right: '16px',
           zIndex: 20,
           background: 'rgba(15, 23, 42, 0.85)',
@@ -2023,7 +2023,7 @@ export default function MapContainer() {
       {(loading || (isAviation && aircraftLoading)) && (
         <div style={{
           position: 'absolute',
-          top: '16px',
+          top: globeSize.width > 0 && globeSize.width < 480 ? '48px' : '16px',
           right: '16px',
           zIndex: 20,
           background: 'rgba(15, 23, 42, 0.85)',
