@@ -1,6 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 
 const MapComponent = dynamic(() => import('@/app/components/MapContainer'), {
   ssr: false,
@@ -19,9 +20,9 @@ export default function TrackerPage() {
       {/* Top Bar */}
       <div className="z-10 px-4 md:px-8 py-3 flex justify-between items-center border-b border-zinc-900">
         <div className="flex items-center gap-4">
-          <a href="/" className="text-sm sm:text-xl font-light tracking-widest text-white hover:text-cyan-400 transition-colors duration-300">
+          <Link href="/" className="text-sm sm:text-xl font-light tracking-widest text-white hover:text-cyan-400 transition-colors duration-300">
             MERIDIAN<span className="text-emerald-400">.</span>ACTUAL
-          </a>
+          </Link>
         </div>
         <div className="text-xs text-zinc-500 font-mono">Mk.1</div>
       </div>

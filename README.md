@@ -98,6 +98,22 @@ Open [http://localhost:3000](http://localhost:3000).
 
 No API keys required for core functionality. The TLE, launch, and ADS-B sources are public.
 
+### Optional: Ko-fi Support Link
+
+By default, in-app support buttons open:
+
+```bash
+https://ko-fi.com/meridianmk1
+```
+
+If you want to override this, set a public env variable:
+
+```bash
+NEXT_PUBLIC_KOFI_URL=https://ko-fi.com/your-handle
+```
+
+If this variable is not set, the app uses the built-in Meridian Ko-fi URL.
+
 ---
 
 ## Architecture Notes

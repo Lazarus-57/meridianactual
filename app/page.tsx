@@ -152,6 +152,7 @@ function FeatureCard({ icon, title, description }: { icon: string; title: string
 // ---- Main Landing Page ----
 export default function LandingPage() {
   const [mounted, setMounted] = useState(false);
+  const kofiUrl = process.env.NEXT_PUBLIC_KOFI_URL || 'https://ko-fi.com/meridianmk1';
 
   useEffect(() => {
     setMounted(true);
@@ -314,6 +315,32 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      <a
+        href={kofiUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-5 right-5 z-40 inline-flex h-11 w-11 items-center justify-center rounded-full border border-cyan-400/35 bg-[#0b132f]/80 text-cyan-300 backdrop-blur-md transition-all duration-300 hover:scale-105 hover:border-emerald-300/45 hover:text-emerald-300 hover:shadow-[0_0_24px_rgba(16,185,129,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40 md:bottom-6 md:right-6"
+        aria-label="Buy me a coffee via Ko-fi"
+        title="Buy me a coffee via Ko-fi"
+      >
+        <span className="sr-only">Buy me a coffee</span>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          className="h-6 w-6"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M6 9h10v4a5 5 0 0 1-5 5h0a5 5 0 0 1-5-5V9z" />
+          <path d="M16 10h1.5a2.5 2.5 0 1 1 0 5H16" />
+          <path d="M8 6c0-1 1-1.5 1-2.5" />
+          <path d="M11 6c0-1 1-1.5 1-2.5" />
+        </svg>
+      </a>
     </div>
   );
 }
